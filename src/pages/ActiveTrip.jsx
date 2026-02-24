@@ -59,8 +59,10 @@ const ActiveTrip = () => {
         };
     }, []);
 
+    const [routeCalculated, setRouteCalculated] = useState(false);
+
     const calculateRoute = useCallback(async () => {
-        if (!window.google || !trip?.destination || !currentLocation) return;
+        if (!window.google || !trip?.destination || !currentLocation || routeCalculated) return;
 
         let dest = trip.destination;
         if (destinationCoords) {
@@ -77,16 +79,17 @@ const ActiveTrip = () => {
                 travelMode: window.google.maps.TravelMode.DRIVING
             });
             setDirectionsResponse(results);
+            setRouteCalculated(true);
         } catch (error) {
             console.error("❌ No se pudo trazar la ruta hacia el destino:", dest, error);
         }
-    }, [trip?.destination, destinationCoords, currentLocation]);
+    }, [trip?.destination, destinationCoords, currentLocation, routeCalculated]);
 
     useEffect(() => {
-        if (isLoaded && trip?.destination && currentLocation) {
+        if (isLoaded && trip?.destination && currentLocation && !routeCalculated) {
             calculateRoute();
         }
-    }, [isLoaded, calculateRoute]);
+    }, [isLoaded, trip?.destination, currentLocation, routeCalculated, calculateRoute]);
     // ----------------------------------------
 
     useEffect(() => {
@@ -286,11 +289,19 @@ const ActiveTrip = () => {
 
                     {/* Container */}
                     <div className="mb-6">
-                        <span style={{ color: 'var(--text-medium)', fontSize: '0.9rem' }}>
-                            Contenedor: <span style={{ color: 'var(--primary-red)', fontWeight: '700' }}>
-                                {trip.trip_containers?.[0]?.container_number || 'N/A'}
-                            </span>
-                        </span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            {trip.trip_containers && trip.trip_containers.length > 0 ? (
+                                trip.trip_containers.map((container, index) => (
+                                    <span key={index} style={{ color: 'var(--text-medium)', fontSize: '0.9rem', background: '#F3F4F6', padding: '0.25rem 0.75rem', borderRadius: '8px' }}>
+                                        Contenedor: <span style={{ color: 'var(--primary-red)', fontWeight: '700' }}>
+                                            {container.container_number}
+                                        </span>
+                                    </span>
+                                ))
+                            ) : (
+                                <span style={{ color: 'var(--text-medium)', fontSize: '0.9rem' }}>Sin contenedores</span>
+                            )}
+                        </div>
                     </div>
 
                     {/* Timer Box */}

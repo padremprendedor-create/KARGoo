@@ -45,7 +45,7 @@ const DriverModal = ({ isOpen, onClose, driver = null, onSave }) => {
 
         try {
             if (driver) {
-                // Update
+                // Update existing driver
                 const { error } = await supabase
                     .from('profiles')
                     .update(formData)
@@ -53,11 +53,20 @@ const DriverModal = ({ isOpen, onClose, driver = null, onSave }) => {
 
                 if (error) throw error;
             } else {
-                const { error } = await supabase
-                    .from('profiles')
-                    .insert([{ ...formData }]);
+                // Create new driver using the RPC to handle Auth + Profiles securely
+                const { data, error } = await supabase.rpc('create_driver_account', {
+                    p_full_name: formData.full_name,
+                    p_dni: formData.dni,
+                    p_license: formData.license,
+                    p_phone: formData.phone
+                });
 
-                if (error) throw error;
+                if (error) {
+                    throw new Error(error.message || 'Error al crear la cuenta del conductor');
+                }
+
+                // Show success modal or alert
+                alert(`Conductor creado exitosamente.\n\nAcceso:\nCorreo: ${data.email}\nContraseña: sama${data.dni}`);
             }
             onSave();
             onClose();

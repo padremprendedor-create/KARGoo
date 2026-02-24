@@ -169,7 +169,17 @@ const History = () => {
                                 }}>
                                     <Trash2 size={16} color="var(--text-light)" />
                                     <span>
-                                        Contenedor: {trip.trip_containers?.[0]?.container_number || 'N/A'}
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.25rem' }}>
+                                            {trip.trip_containers && trip.trip_containers.length > 0 ? (
+                                                trip.trip_containers.map((c, i) => (
+                                                    <span key={i} style={{ fontSize: '0.75rem', color: 'var(--text-medium)', background: '#F3F4F6', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
+                                                        {c.container_number}
+                                                    </span>
+                                                ))
+                                            ) : (
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>N/A</span>
+                                            )}
+                                        </div>
                                     </span>
                                 </div>
 

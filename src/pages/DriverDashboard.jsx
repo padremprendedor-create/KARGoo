@@ -195,7 +195,17 @@ const DriverDashboard = () => {
                                     {activeTrip.origin} → {activeTrip.destination}
                                 </h2>
                                 <p style={{ color: 'var(--text-medium)', fontSize: '0.9rem' }}>
-                                    Contenedor: {activeTrip.trip_containers?.[0]?.container_number || 'N/A'}
+                                    <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                        {activeTrip.trip_containers && activeTrip.trip_containers.length > 0 ? (
+                                            activeTrip.trip_containers.map((c, i) => (
+                                                <span key={i} style={{ fontSize: '0.8rem', color: 'var(--text-light)', background: '#F3F4F6', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
+                                                    {c.container_number}
+                                                </span>
+                                            ))
+                                        ) : (
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Sin contenedor</span>
+                                        )}
+                                    </div>
                                 </p>
                             </div>
 
