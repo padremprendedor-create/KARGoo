@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Truck, Users, LogOut, Settings, Map } from 'lucide-react';
+import { LayoutDashboard, Truck, Users, LogOut, Settings, Map, Clock, Building2 } from 'lucide-react';
 import Button from './ui/Button';
 import { supabase } from '../supabaseClient';
 import logo from '../assets/logo.png';
@@ -17,8 +17,10 @@ const AdminSidebar = () => {
         { path: '/admin', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
         { path: '/admin/trips', icon: <Truck size={20} />, label: 'Viajes' },
         { path: '/admin/drivers', icon: <Users size={20} />, label: 'Conductores' },
-        { path: '/admin/vehicles', icon: <Settings size={20} />, label: 'Vehículos' },
+        { path: '/admin/timeline', icon: <Clock size={20} />, label: 'Timeline' },
         { path: '/admin/rutas', icon: <Map size={20} />, label: 'Rutas' },
+        { path: '/admin/vehicles', icon: <Settings size={20} />, label: 'Vehículos' },
+        { path: '/admin/clients', icon: <Building2 size={20} />, label: 'Clientes' },
     ];
 
     return (

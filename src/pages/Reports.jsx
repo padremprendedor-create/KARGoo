@@ -30,7 +30,7 @@ const Reports = () => {
             .from('trips')
             .select('*')
             .eq('driver_id', user.id)
-            .eq('status', 'completed')
+            .in('status', ['completed', 'approved'])
             .gte('end_time', startOfMonth)
             .lte('end_time', endOfMonth)
             .order('end_time', { ascending: true });

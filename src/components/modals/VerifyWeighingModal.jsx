@@ -1,27 +1,25 @@
 import React, { useEffect, useState } from 'react';
-import { X, Scale, Image as ImageIcon, AlertCircle, CheckCircle, FileText, ZoomIn } from 'lucide-react';
+import { X, Image as ImageIcon, CheckCircle, ZoomIn, MapPin, Truck, Package, Clock, Calendar, Gauge, Building2, ArrowUpFromLine, ArrowDownToLine, Repeat2, User } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
 const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
     const [trip, setTrip] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [photoUrl, setPhotoUrl] = useState(null);
     const [processing, setProcessing] = useState(false);
     const [observations, setObservations] = useState('');
-    const [additionalDocs, setAdditionalDocs] = useState([]);
-    const [additionalPhotoUrls, setAdditionalPhotoUrls] = useState({});
+    const [allPhotos, setAllPhotos] = useState([]);
     const [enlargedImage, setEnlargedImage] = useState(null);
+    const [clientName, setClientName] = useState('');
 
     useEffect(() => {
         if (isOpen && tripId) {
             fetchTripDetails();
         } else {
             setTrip(null);
-            setPhotoUrl(null);
             setProcessing(false);
             setObservations('');
-            setAdditionalDocs([]);
-            setAdditionalPhotoUrls({});
+            setAllPhotos([]);
+            setClientName('');
             setEnlargedImage(null);
         }
     }, [isOpen, tripId]);
@@ -39,41 +37,26 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
         } else {
             setTrip(data);
             setObservations(data.observations || '');
-            const ticketPhoto = data.trip_photos?.find(p => p.photo_type === 'ticket');
-            if (ticketPhoto?.photo_url) {
-                downloadPhoto(ticketPhoto.photo_url);
+
+            if (data.client_id) {
+                const { data: clientData } = await supabase
+                    .from('clients')
+                    .select('name')
+                    .eq('id', data.client_id)
+                    .single();
+                if (clientData) setClientName(clientData.name);
             }
-            // Load additional documents
-            const docs = data.trip_photos?.filter(p => p.photo_type === 'additional') || [];
-            setAdditionalDocs(docs);
-            if (docs.length > 0) {
-                downloadAdditionalPhotos(docs);
-            }
+
+            const photos = data.trip_photos || [];
+            downloadAllPhotos(photos);
         }
         setLoading(false);
     };
 
-    const downloadPhoto = async (filePath) => {
-        if (filePath.startsWith('http')) {
-            const marker = '/object/public/trip-photos/';
-            const idx = filePath.indexOf(marker);
-            if (idx !== -1) filePath = filePath.slice(idx + marker.length);
-        }
-
-        const { data, error } = await supabase.storage
-            .from('trip-photos')
-            .download(filePath);
-
-        if (!error) {
-            const objectUrl = URL.createObjectURL(data);
-            setPhotoUrl(objectUrl);
-        }
-    };
-
-    const downloadAdditionalPhotos = async (docs) => {
-        const urls = {};
-        for (const doc of docs) {
-            let filePath = doc.photo_url;
+    const downloadAllPhotos = async (photos) => {
+        const downloaded = [];
+        for (const photo of photos) {
+            let filePath = photo.photo_url;
             if (filePath.startsWith('http')) {
                 const marker = '/object/public/trip-photos/';
                 const idx = filePath.indexOf(marker);
@@ -83,10 +66,25 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
                 .from('trip-photos')
                 .download(filePath);
             if (!error) {
-                urls[doc.id] = URL.createObjectURL(data);
+                downloaded.push({
+                    id: photo.id,
+                    type: photo.photo_type,
+                    url: URL.createObjectURL(data),
+                    label: getPhotoLabel(photo.photo_type),
+                });
             }
         }
-        setAdditionalPhotoUrls(urls);
+        setAllPhotos(downloaded);
+    };
+
+    const getPhotoLabel = (type) => {
+        switch (type) {
+            case 'ticket': return 'Ticket de Pesaje';
+            case 'sustento': return 'Foto de Sustento';
+            case 'additional': return 'Documento Adicional';
+            case 'guide': return 'Guía de Remisión';
+            default: return 'Foto';
+        }
     };
 
     const handleVerify = async (status) => {
@@ -119,14 +117,43 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
     };
 
     const formatDateTime = (dateString) => {
-        if (!dateString) return '---';
-        return new Date(dateString).toLocaleDateString('es-PE', {
-            day: 'numeric', month: 'short', year: 'numeric',
-            hour: '2-digit', minute: '2-digit'
-        });
+        if (!dateString) return '—';
+        const date = new Date(dateString);
+        const day = date.getDate();
+        const month = date.toLocaleDateString('es-PE', { month: 'short' }).replace('.', '');
+        const year = date.getFullYear();
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${day} ${month} ${year}, ${hours}:${minutes}`;
+    };
+
+    const calcDuration = () => {
+        if (!trip?.start_time) return '—';
+        const start = new Date(trip.start_time).getTime();
+        const end = trip.end_time ? new Date(trip.end_time).getTime() : Date.now();
+        const diff = Math.max(0, end - start);
+        const hrs = String(Math.floor(diff / 3600000)).padStart(2, '0');
+        const mins = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+        return `${hrs}h ${mins}m`;
     };
 
     if (!isOpen) return null;
+
+    const statusLabel = trip?.status === 'approved' ? 'APROBADO'
+        : trip?.status === 'rejected' ? 'OBSERVADO'
+            : trip?.status === 'completed' ? 'POR REVISAR'
+                : trip?.status === 'in_progress' ? 'EN CURSO'
+                    : 'PENDIENTE';
+    const statusBg = trip?.status === 'approved' ? '#DCFCE7'
+        : trip?.status === 'rejected' ? '#FEF3C7'
+            : trip?.status === 'completed' ? '#EFF6FF'
+                : trip?.status === 'in_progress' ? '#FEF3C7'
+                    : '#F3F4F6';
+    const statusColor = trip?.status === 'approved' ? '#16A34A'
+        : trip?.status === 'rejected' ? '#D97706'
+            : trip?.status === 'completed' ? '#2563EB'
+                : trip?.status === 'in_progress' ? '#D97706'
+                    : '#6B7280';
 
     return (
         /* Backdrop */
@@ -137,17 +164,16 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
         }}>
             {/* Modal Container */}
             <div style={{
-                background: 'white',
+                background: 'var(--bg-light, #F8FAFC)',
                 borderRadius: '20px',
                 width: '95%',
-                maxWidth: '960px',
+                maxWidth: '1060px',
                 height: 'auto',
-                maxHeight: '85vh',
+                maxHeight: '90vh',
                 boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.35)',
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
-                animation: 'fadeInScale 0.25s ease-out',
             }}>
                 {/* Header */}
                 <div style={{
@@ -156,17 +182,30 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    background: 'linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%)',
+                    background: 'var(--bg-card, white)',
                     flexShrink: 0,
                 }}>
-                    <h2 style={{
-                        fontSize: '1.15rem',
-                        fontWeight: '800',
-                        color: '#111827',
-                        letterSpacing: '-0.02em',
-                    }}>
-                        Verificar Pesaje — Viaje #{tripId}
-                    </h2>
+                    <div>
+                        <h2 style={{
+                            fontSize: '1.15rem',
+                            fontWeight: '800',
+                            color: 'var(--text-dark, #111827)',
+                            letterSpacing: '-0.02em',
+                            margin: 0,
+                        }}>
+                            Verificación de Viaje #{tripId}
+                        </h2>
+                        {trip && (
+                            <span style={{
+                                background: statusBg, color: statusColor,
+                                padding: '0.2rem 0.6rem', borderRadius: '999px',
+                                fontSize: '0.6rem', fontWeight: '700', letterSpacing: '0.05em',
+                                display: 'inline-block', marginTop: '0.375rem',
+                            }}>
+                                {statusLabel}
+                            </span>
+                        )}
+                    </div>
                     <button
                         onClick={onClose}
                         style={{
@@ -199,248 +238,407 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
                         overflow: 'hidden',
                         minHeight: 0,
                     }}>
-                        {/* ===== LEFT: Photo Area (60%) ===== */}
+                        {/* ===== LEFT: Photos Gallery with vertical scroll ===== */}
                         <div style={{
-                            width: '58%',
+                            width: '48%',
                             background: '#F1F5F9',
                             display: 'flex',
                             flexDirection: 'column',
-                            overflowY: 'auto',
                             borderRight: '1px solid #E2E8F0',
                         }}>
-                            {/* Ticket Photo */}
+                            {/* Gallery Header */}
                             <div style={{
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                padding: '2rem', position: 'relative', minHeight: '300px',
+                                padding: '0.875rem 1.25rem',
+                                borderBottom: '1px solid #E2E8F0',
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                flexShrink: 0,
+                                background: 'rgba(255,255,255,0.6)',
                             }}>
-                                {photoUrl ? (
-                                    <>
-                                        <img
-                                            src={photoUrl}
-                                            alt="Ticket de Pesaje"
-                                            style={{
-                                                maxWidth: '100%', maxHeight: '45vh',
-                                                objectFit: 'contain', borderRadius: '12px',
-                                                boxShadow: '0 10px 30px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.08)',
-                                                border: '6px solid white',
-                                            }}
-                                        />
-                                        <div style={{
-                                            position: 'absolute', bottom: '1.25rem', left: '1.25rem',
-                                            background: 'rgba(15,23,42,0.75)', color: 'white',
-                                            padding: '6px 14px', borderRadius: '20px',
-                                            fontSize: '0.7rem', fontWeight: '600',
-                                            display: 'flex', alignItems: 'center', gap: '6px',
-                                            backdropFilter: 'blur(8px)', letterSpacing: '0.02em',
-                                        }}>
-                                            <ImageIcon size={13} /> FOTO DEL TICKET
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div style={{
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center',
-                                        justifyContent: 'center', gap: '16px', color: '#94A3B8', textAlign: 'center',
-                                    }}>
-                                        <div style={{
-                                            width: '80px', height: '80px', borderRadius: '50%',
-                                            background: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        }}>
-                                            <ImageIcon size={36} strokeWidth={1.5} />
-                                        </div>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: '500' }}>
-                                            No se encontró foto de ticket<br />para este viaje.
-                                        </p>
-                                    </div>
-                                )}
+                                <ImageIcon size={16} color="var(--primary-red, #DC2626)" />
+                                <span style={{
+                                    fontSize: '0.75rem', fontWeight: '800', color: 'var(--text-medium, #6B7280)',
+                                    textTransform: 'uppercase', letterSpacing: '0.08em',
+                                }}>
+                                    Fotos del Viaje ({allPhotos.length})
+                                </span>
                             </div>
 
-                            {/* Additional Documents Gallery */}
-                            {additionalDocs.length > 0 && (
-                                <div style={{ padding: '0 1.5rem 1.5rem' }}>
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', gap: '6px',
-                                        marginBottom: '0.75rem',
-                                    }}>
-                                        <FileText size={14} color="#64748B" />
-                                        <span style={{
-                                            fontSize: '0.7rem', fontWeight: '700', color: '#64748B',
-                                            textTransform: 'uppercase', letterSpacing: '0.08em',
-                                        }}>
-                                            Documentos Adicionales ({additionalDocs.length})
-                                        </span>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                        {additionalDocs.map(doc => (
-                                            <div key={doc.id} style={{
-                                                background: 'white', borderRadius: '10px',
-                                                overflow: 'hidden', border: '1px solid #E2E8F0',
-                                                boxShadow: '0 2px 6px rgba(0,0,0,0.05)',
-                                            }}>
-                                                {additionalPhotoUrls[doc.id] && (
-                                                    <div
-                                                        onClick={() => setEnlargedImage(additionalPhotoUrls[doc.id])}
-                                                        style={{
-                                                            width: '100%', aspectRatio: '16/9',
-                                                            cursor: 'pointer', position: 'relative', overflow: 'hidden',
-                                                        }}
-                                                    >
-                                                        <img
-                                                            src={additionalPhotoUrls[doc.id]}
-                                                            alt={doc.description || 'Documento'}
-                                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                                        />
-                                                        <div style={{
-                                                            position: 'absolute', inset: 0,
-                                                            background: 'rgba(0,0,0,0.05)',
-                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            opacity: 0, transition: 'opacity 0.2s',
-                                                        }}
-                                                            onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                                                            onMouseLeave={e => e.currentTarget.style.opacity = 0}
-                                                        >
-                                                            <ZoomIn size={24} color="white" />
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                <div style={{ padding: '8px 12px' }}>
-                                                    <p style={{
-                                                        fontSize: '0.8rem', fontWeight: '600',
-                                                        color: '#1F2937', margin: 0,
-                                                    }}>
-                                                        {doc.description || 'Sin descripción'}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* ===== RIGHT: Details & Actions (42%) ===== */}
-                        <div style={{
-                            width: '42%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            background: 'white',
-                        }}>
-                            {/* Scrollable Details */}
+                            {/* Scrollable Photos */}
                             <div style={{
                                 flex: 1,
                                 overflowY: 'auto',
-                                padding: '2rem 1.75rem',
-                                textAlign: 'center',
+                                padding: '1.25rem',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '1rem',
                             }}>
-                                <div style={{
-                                    fontSize: '0.65rem',
-                                    fontWeight: '800',
-                                    color: '#9CA3AF',
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.15em',
-                                    marginBottom: '1.75rem',
-                                }}>
-                                    Detalles del Registro
-                                </div>
-
-                                {/* Detail Items */}
-                                {[
-                                    { label: 'Conductor', value: trip.profiles?.full_name || 'Sin asignar' },
-                                    { label: 'Placa', value: trip.vehicle_plate },
-                                    ...((trip.trip_containers && trip.trip_containers.length > 0)
-                                        ? trip.trip_containers.map((c, i) => {
-                                            const details = [c.dimension ? `${c.dimension}'` : '', c.condition || ''].filter(Boolean).join(' - ');
-                                            const val = c.container_number + (details ? ` (${details})` : '');
-                                            return { label: `Contenedor ${trip.trip_containers.length > 1 ? i + 1 : ''}`.trim(), value: val };
-                                        })
-                                        : [{ label: 'Contenedor', value: '---' }]),
-                                    { label: 'Fecha / Hora Fin', value: formatDateTime(trip.end_time || trip.created_at) },
-                                ].map((item, i, arr) => (
-                                    <div key={i} style={{
-                                        marginBottom: '1.25rem',
-                                        paddingBottom: i === arr.length - 1 ? '1.25rem' : '0',
-                                        borderBottom: i === arr.length - 1 ? '1px solid #F3F4F6' : 'none',
+                                {allPhotos.length === 0 ? (
+                                    <div style={{
+                                        display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                        justifyContent: 'center', gap: '16px', color: '#94A3B8',
+                                        textAlign: 'center', padding: '4rem 2rem',
                                     }}>
                                         <div style={{
-                                            fontSize: '0.7rem', color: '#9CA3AF', marginBottom: '4px',
-                                            fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em',
+                                            width: '72px', height: '72px', borderRadius: '50%',
+                                            background: '#E2E8F0', display: 'flex',
+                                            alignItems: 'center', justifyContent: 'center',
                                         }}>
-                                            {item.label}
+                                            <ImageIcon size={32} strokeWidth={1.5} />
+                                        </div>
+                                        <p style={{ fontSize: '0.9rem', fontWeight: '500', margin: 0 }}>
+                                            No se encontraron fotos<br />para este viaje.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    allPhotos.map((photo) => (
+                                        <div
+                                            key={photo.id}
+                                            style={{
+                                                background: 'white',
+                                                borderRadius: '16px',
+                                                overflow: 'hidden',
+                                                border: '1px solid #E2E8F0',
+                                                boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
+                                                transition: 'transform 0.2s, box-shadow 0.2s',
+                                            }}
+                                            onMouseEnter={e => {
+                                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                                e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.1)';
+                                            }}
+                                            onMouseLeave={e => {
+                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.05)';
+                                            }}
+                                        >
+                                            <div
+                                                onClick={() => setEnlargedImage(photo.url)}
+                                                style={{
+                                                    width: '100%',
+                                                    aspectRatio: '16/10',
+                                                    cursor: 'pointer',
+                                                    position: 'relative',
+                                                    overflow: 'hidden',
+                                                    background: '#1F2937',
+                                                }}
+                                            >
+                                                <img
+                                                    src={photo.url}
+                                                    alt={photo.label}
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                />
+                                                <div style={{
+                                                    position: 'absolute', inset: 0,
+                                                    background: 'rgba(0,0,0,0.1)',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    opacity: 0, transition: 'opacity 0.2s',
+                                                }}
+                                                    onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                                                    onMouseLeave={e => e.currentTarget.style.opacity = 0}
+                                                >
+                                                    <div style={{
+                                                        background: 'rgba(255,255,255,0.9)', borderRadius: '10px',
+                                                        padding: '6px 14px', display: 'flex', alignItems: 'center',
+                                                        gap: '4px', fontSize: '0.75rem', fontWeight: '700', color: '#374151',
+                                                    }}>
+                                                        <ZoomIn size={14} /> Ampliar
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                padding: '0.65rem 1rem',
+                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                            }}>
+                                                <div style={{
+                                                    width: '8px', height: '8px', borderRadius: '50%',
+                                                    background: photo.type === 'ticket' ? '#3B82F6'
+                                                        : photo.type === 'sustento' ? '#10B981'
+                                                            : '#F59E0B',
+                                                    flexShrink: 0,
+                                                }} />
+                                                <span style={{
+                                                    fontSize: '0.8rem', fontWeight: '700',
+                                                    color: 'var(--text-dark, #374151)',
+                                                }}>
+                                                    {photo.label}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        {/* ===== RIGHT: Trip Details & Actions ===== */}
+                        <div style={{
+                            width: '52%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            background: 'var(--bg-light, #F8FAFC)',
+                        }}>
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+                                {/* Main Info Card */}
+                                <div style={{
+                                    background: 'var(--bg-card, white)',
+                                    borderRadius: '20px',
+                                    padding: '1.5rem',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                    marginBottom: '1rem',
+                                }}>
+                                    {/* Route Row */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                                        <div style={{
+                                            width: '40px', height: '40px', borderRadius: '12px',
+                                            background: 'var(--bg-light, #F3F4F6)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                        }}>
+                                            <MapPin size={18} color="var(--primary-red, #DC2626)" />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.7rem', fontWeight: '600', color: 'var(--text-light, #9CA3AF)', marginBottom: '0.125rem' }}>
+                                                Ruta del Viaje
+                                            </div>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-dark, #1F2937)' }}>
+                                                {trip.origin || '—'} → {trip.destination || '—'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Driver Row */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                                        <div style={{
+                                            width: '40px', height: '40px', borderRadius: '12px',
+                                            background: 'var(--bg-light, #F3F4F6)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                        }}>
+                                            <User size={18} color="var(--primary-red, #DC2626)" />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '0.7rem', fontWeight: '600', color: 'var(--text-light, #9CA3AF)', marginBottom: '0.125rem' }}>
+                                                Conductor
+                                            </div>
+                                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-dark, #1F2937)' }}>
+                                                {trip.profiles?.full_name || 'Sin asignar'}
+                                            </div>
+                                            {trip.profiles?.phone && (
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-medium, #6B7280)', marginTop: '1px' }}>
+                                                    {trip.profiles.phone}
+                                                </div>
+                                            )}
                                         </div>
                                         <div style={{
-                                            fontSize: '0.95rem', fontWeight: '700', color: '#1F2937',
+                                            background: 'var(--bg-light, #F3F4F6)',
+                                            padding: '0.5rem 0.75rem',
+                                            borderRadius: '10px',
+                                            border: '1px solid var(--border-light, #E5E7EB)',
                                         }}>
-                                            {item.value}
+                                            <div style={{ fontSize: '0.6rem', fontWeight: '700', color: 'var(--text-light, #9CA3AF)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                                                Placa
+                                            </div>
+                                            <div style={{ fontSize: '0.9rem', fontWeight: '800', color: 'var(--text-dark, #1F2937)', letterSpacing: '0.05em', fontFamily: 'monospace' }}>
+                                                {trip.vehicle_plate || '—'}
+                                            </div>
                                         </div>
                                     </div>
-                                ))}
 
-                                {/* Weight - Highlighted */}
-                                <div style={{
-                                    marginTop: '0.5rem',
-                                    padding: '1.25rem',
-                                    background: 'linear-gradient(135deg, #FFF7ED 0%, #FFFBEB 100%)',
-                                    borderRadius: '14px',
-                                    border: '1px solid #FDE68A',
-                                }}>
-                                    <div style={{
-                                        fontSize: '0.65rem', color: '#92400E', marginBottom: '6px',
-                                        fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.1em',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-                                    }}>
-                                        <Scale size={13} /> Peso Declarado
+                                    {/* Service Type & Client Row */}
+                                    <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+                                        <div style={{ flex: 1, background: '#F8FAFC', padding: '0.875rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                                            <div style={{
+                                                fontSize: '0.6rem', fontWeight: '800',
+                                                color: 'var(--text-medium, #6B7280)',
+                                                letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.25rem',
+                                                display: 'flex', alignItems: 'center', gap: '0.375rem'
+                                            }}>
+                                                {trip.service_type === 'embarque' ? <ArrowUpFromLine size={13} color="var(--primary-red, #DC2626)" />
+                                                    : trip.service_type === 'descarga' ? <ArrowDownToLine size={13} color="var(--primary-red, #DC2626)" />
+                                                        : <Repeat2 size={13} color="var(--primary-red, #DC2626)" />}
+                                                Tipo de Servicio
+                                            </div>
+                                            <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark, #1F2937)', textTransform: 'capitalize' }}>
+                                                {trip.service_type || '—'}
+                                            </div>
+                                        </div>
+                                        <div style={{ flex: 1, background: '#F8FAFC', padding: '0.875rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                                            <div style={{
+                                                fontSize: '0.6rem', fontWeight: '800',
+                                                color: 'var(--text-medium, #6B7280)',
+                                                letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.25rem',
+                                                display: 'flex', alignItems: 'center', gap: '0.375rem'
+                                            }}>
+                                                <Building2 size={13} color="var(--primary-red, #DC2626)" /> Cliente
+                                            </div>
+                                            <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark, #1F2937)' }}>
+                                                {clientName || '—'}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style={{
-                                        fontSize: '2rem', fontWeight: '900', color: '#92400E',
-                                        letterSpacing: '-0.03em', lineHeight: 1.1,
-                                    }}>
-                                        {trip.weight ? Number(trip.weight).toLocaleString('es-PE') : '---'}
-                                        <span style={{ fontSize: '0.85rem', fontWeight: '500', marginLeft: '6px', color: '#B45309' }}>KG</span>
-                                    </div>
-                                </div>
 
-                                {/* Info Note */}
-                                <div style={{
-                                    marginTop: '1.25rem',
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '8px',
-                                    background: '#F8FAFC',
-                                    padding: '10px 12px',
-                                    borderRadius: '10px',
-                                    border: '1px solid #E2E8F0',
-                                    textAlign: 'left',
-                                }}>
-                                    <AlertCircle size={15} style={{ color: '#64748B', flexShrink: 0, marginTop: '1px' }} />
-                                    <p style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: '1.45', margin: 0 }}>
-                                        <strong>Nota:</strong> Verifique que el peso en la imagen coincida con el valor declarado.
-                                    </p>
+                                    {/* Containers */}
+                                    {trip.trip_containers && trip.trip_containers.length > 0 && (
+                                        <div style={{ marginBottom: '1rem' }}>
+                                            <div style={{
+                                                fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-light, #9CA3AF)',
+                                                letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.5rem'
+                                            }}>
+                                                Contenedores ({trip.trip_containers.length})
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                {trip.trip_containers.map((container, idx) => (
+                                                    <div key={container.id || idx} style={{
+                                                        display: 'flex', alignItems: 'center', gap: '0.75rem',
+                                                        background: '#FFF7ED', padding: '0.75rem 1rem',
+                                                        borderRadius: '12px', border: '1px solid #FFEDD5'
+                                                    }}>
+                                                        <div style={{
+                                                            background: 'white', padding: '0.375rem', borderRadius: '8px',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                                        }}>
+                                                            <Package size={16} color="#EA580C" />
+                                                        </div>
+                                                        <div style={{ flex: 1 }}>
+                                                            <div style={{ fontSize: '0.6rem', fontWeight: '700', color: '#EA580C', textTransform: 'uppercase' }}>
+                                                                Contenedor {idx + 1}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#9A3412', letterSpacing: '0.02em' }}>
+                                                                {container.container_number}
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                                                            {container.dimension && (
+                                                                <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#B45309', background: '#FFEDD5', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
+                                                                    {container.dimension}'
+                                                                </span>
+                                                            )}
+                                                            {container.condition && (
+                                                                <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#B45309', background: '#FFEDD5', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
+                                                                    {container.condition}
+                                                                </span>
+                                                            )}
+                                                            {container.cargo_type && (
+                                                                <span style={{
+                                                                    fontSize: '0.6rem', fontWeight: '700', padding: '0.15rem 0.4rem',
+                                                                    borderRadius: '4px', textTransform: 'uppercase',
+                                                                    color: container.cargo_type === 'imo' ? '#DC2626' : container.cargo_type === 'iqbf' ? '#7C3AED' : '#0369A1',
+                                                                    background: container.cargo_type === 'imo' ? '#FEE2E2' : container.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE',
+                                                                }}>
+                                                                    {container.cargo_type === 'general' ? 'General' : container.cargo_type.toUpperCase()}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div style={{ height: '1px', background: 'var(--border-light, #E5E7EB)', margin: '1rem 0' }} />
+
+                                    {/* Times */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                                        <div style={{
+                                            width: '36px', height: '36px', borderRadius: '10px',
+                                            background: 'var(--bg-light, #F3F4F6)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                        }}>
+                                            <Calendar size={16} color="var(--primary-red, #DC2626)" />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '0.65rem', fontWeight: '600', color: 'var(--text-light, #9CA3AF)' }}>Inicio</div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-dark, #1F2937)' }}>
+                                                {formatDateTime(trip.start_time)}
+                                            </div>
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '0.65rem', fontWeight: '600', color: 'var(--text-light, #9CA3AF)' }}>Fin</div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-dark, #1F2937)' }}>
+                                                {formatDateTime(trip.end_time)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.65rem', fontWeight: '600', color: 'var(--text-light, #9CA3AF)' }}>Duración</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <Clock size={14} color="#16A34A" />
+                                                <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#16A34A' }}>
+                                                    {calcDuration()}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Mileage Row */}
+                                    {trip.km_start != null && (
+                                        <>
+                                            <div style={{ height: '1px', background: 'var(--border-light, #E5E7EB)', margin: '0 0 1rem 0' }} />
+                                            <div style={{ display: 'flex', gap: '1rem' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{
+                                                        fontSize: '0.6rem', fontWeight: '700', color: 'var(--primary-red, #DC2626)',
+                                                        letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.25rem'
+                                                    }}>Km Inicio</div>
+                                                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark, #1F2937)' }}>
+                                                        {Number(trip.km_start).toLocaleString('es-PE')}
+                                                    </div>
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{
+                                                        fontSize: '0.6rem', fontWeight: '700', color: 'var(--primary-red, #DC2626)',
+                                                        letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.25rem'
+                                                    }}>Km Final</div>
+                                                    <div style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark, #1F2937)' }}>
+                                                        {trip.km_end != null ? Number(trip.km_end).toLocaleString('es-PE') : '—'}
+                                                    </div>
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{
+                                                        fontSize: '0.6rem', fontWeight: '700', color: '#16A34A',
+                                                        letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.25rem'
+                                                    }}>Distancia</div>
+                                                    <div style={{ fontSize: '1rem', fontWeight: '800', color: '#16A34A' }}>
+                                                        {trip.km_end != null ? `${(trip.km_end - trip.km_start).toLocaleString('es-PE')} km` : '—'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
 
                                 {/* Previous rejection banner */}
                                 {trip.status === 'rejected' && trip.observations && (
                                     <div style={{
-                                        marginTop: '1rem',
-                                        padding: '10px 12px',
-                                        background: '#FFF1F2',
-                                        borderRadius: '10px',
-                                        border: '1px solid #FECDD3',
-                                        textAlign: 'left',
+                                        background: 'linear-gradient(135deg, #FFF7ED 0%, #FEF3C7 100%)',
+                                        borderRadius: '16px',
+                                        padding: '1rem',
+                                        marginBottom: '1rem',
+                                        border: '1px solid #FDE68A',
+                                        display: 'flex',
+                                        gap: '0.75rem',
+                                        alignItems: 'flex-start'
                                     }}>
-                                        <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#E11D48', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
-                                            Observación anterior
+                                        <div>
+                                            <div style={{
+                                                fontSize: '0.65rem', fontWeight: '800', color: '#92400E',
+                                                letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.25rem'
+                                            }}>
+                                                Observación anterior
+                                            </div>
+                                            <p style={{ fontSize: '0.85rem', color: '#78350F', lineHeight: '1.5', margin: 0, fontWeight: '500' }}>
+                                                {trip.observations}
+                                            </p>
                                         </div>
-                                        <p style={{ fontSize: '0.8rem', color: '#9F1239', lineHeight: '1.45', margin: 0 }}>
-                                            {trip.observations}
-                                        </p>
                                     </div>
                                 )}
 
                                 {/* Observations textarea */}
-                                <div style={{ marginTop: '1rem', textAlign: 'left' }}>
+                                <div style={{
+                                    background: 'var(--bg-card, white)',
+                                    borderRadius: '16px',
+                                    padding: '1.25rem',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                                }}>
                                     <label style={{
-                                        fontSize: '0.7rem', fontWeight: '700', color: '#6B7280',
+                                        fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-medium, #6B7280)',
                                         textTransform: 'uppercase', letterSpacing: '0.05em',
-                                        display: 'block', marginBottom: '6px',
+                                        display: 'block', marginBottom: '0.5rem',
                                     }}>
                                         Observaciones
                                     </label>
@@ -451,68 +649,53 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
                                         rows={3}
                                         style={{
                                             width: '100%',
-                                            padding: '10px 12px',
+                                            padding: '0.75rem',
                                             borderRadius: '10px',
-                                            border: '1px solid #E2E8F0',
+                                            border: '1px solid var(--border-light, #E2E8F0)',
                                             fontSize: '0.85rem',
-                                            color: '#1F2937',
+                                            color: 'var(--text-dark, #1F2937)',
                                             resize: 'vertical',
                                             outline: 'none',
                                             fontFamily: 'inherit',
                                             transition: 'border-color 0.2s',
                                             boxSizing: 'border-box',
                                         }}
-                                        onFocus={(e) => e.target.style.borderColor = '#93C5FD'}
-                                        onBlur={(e) => e.target.style.borderColor = '#E2E8F0'}
+                                        onFocus={(e) => e.target.style.borderColor = 'var(--primary-red, #DC2626)'}
+                                        onBlur={(e) => e.target.style.borderColor = 'var(--border-light, #E2E8F0)'}
                                     />
                                 </div>
                             </div>
 
-                            {/* ===== Action Buttons (sticky bottom) ===== */}
+                            {/* Action Buttons */}
                             <div style={{ flexShrink: 0 }}>
                                 <button
                                     onClick={() => handleVerify('approved')}
                                     disabled={processing}
                                     style={{
-                                        width: '100%',
-                                        padding: '1rem',
-                                        background: '#10B981',
-                                        color: 'white',
-                                        border: 'none',
+                                        width: '100%', padding: '1rem',
+                                        background: '#10B981', color: 'white', border: 'none',
                                         borderTop: '1px solid #E5E7EB',
-                                        fontSize: '0.9rem',
-                                        fontWeight: '700',
+                                        fontSize: '0.9rem', fontWeight: '700',
                                         cursor: processing ? 'not-allowed' : 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '8px',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                                         transition: 'background 0.2s',
                                         opacity: processing ? 0.7 : 1,
                                     }}
                                     onMouseEnter={e => { if (!processing) e.currentTarget.style.background = '#059669'; }}
                                     onMouseLeave={e => { if (!processing) e.currentTarget.style.background = '#10B981'; }}
                                 >
-                                    {processing ? 'Procesando...' : <><CheckCircle size={18} /> Aprobar Foto</>}
+                                    {processing ? 'Procesando...' : <><CheckCircle size={18} /> Aprobar Viaje</>}
                                 </button>
-
                                 <button
                                     onClick={() => handleVerify('rejected')}
                                     disabled={processing}
                                     style={{
-                                        width: '100%',
-                                        padding: '1rem',
-                                        background: '#EF4444',
-                                        color: 'white',
-                                        border: 'none',
+                                        width: '100%', padding: '1rem',
+                                        background: '#EF4444', color: 'white', border: 'none',
                                         borderTop: '1px solid rgba(0,0,0,0.08)',
-                                        fontSize: '0.9rem',
-                                        fontWeight: '700',
+                                        fontSize: '0.9rem', fontWeight: '700',
                                         cursor: processing ? 'not-allowed' : 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '8px',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                                         transition: 'background 0.2s',
                                         opacity: processing ? 0.7 : 1,
                                         borderBottomRightRadius: '20px',
@@ -520,7 +703,7 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
                                     onMouseEnter={e => { if (!processing) e.currentTarget.style.background = '#DC2626'; }}
                                     onMouseLeave={e => { if (!processing) e.currentTarget.style.background = '#EF4444'; }}
                                 >
-                                    {processing ? 'Procesando...' : <><X size={18} /> Rechazar Foto</>}
+                                    {processing ? 'Procesando...' : <><X size={18} /> Rechazar Viaje</>}
                                 </button>
                             </div>
                         </div>
@@ -553,7 +736,7 @@ const VerifyWeighingModal = ({ isOpen, onClose, tripId, onVerify }) => {
                     </button>
                     <img
                         src={enlargedImage}
-                        alt="Documento ampliado"
+                        alt="Foto ampliada"
                         onClick={e => e.stopPropagation()}
                         style={{
                             maxWidth: '95%', maxHeight: '90vh',

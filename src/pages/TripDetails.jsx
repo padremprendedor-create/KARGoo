@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, Calendar, MapPin, Package, Scale, Clock, X, ZoomIn, Plus, Trash2, Edit3, Check, Camera, FileText, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Calendar, MapPin, Package, Scale, Clock, X, ZoomIn, Plus, Trash2, Edit3, Check, Camera, FileText, AlertTriangle, Building2, ArrowUpFromLine, ArrowDownToLine, Repeat2, Image } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 const TripDetails = () => {
@@ -21,6 +21,11 @@ const TripDetails = () => {
     const [newDocDescription, setNewDocDescription] = useState('');
     const [showAddForm, setShowAddForm] = useState(false);
     const fileInputRef = useRef(null);
+
+    // New fields
+    const [clientName, setClientName] = useState(null);
+    const [sustentoPhotos, setSustentoPhotos] = useState([]);
+    const [sustentoUrls, setSustentoUrls] = useState({});
 
     useEffect(() => {
         fetchTrip();
@@ -80,6 +85,34 @@ const TripDetails = () => {
         downloadAll();
     }, [additionalDocs]);
 
+    // Download sustento photos
+    useEffect(() => {
+        if (sustentoPhotos.length === 0) return;
+
+        const downloadAll = async () => {
+            const urls = {};
+            for (const photo of sustentoPhotos) {
+                let filePath = photo.photo_url;
+                if (filePath.startsWith('http')) {
+                    const marker = '/object/public/trip-photos/';
+                    const idx = filePath.indexOf(marker);
+                    if (idx !== -1) filePath = filePath.slice(idx + marker.length);
+                }
+                const { data, error } = await supabase.storage
+                    .from('trip-photos')
+                    .download(filePath);
+                if (!error) {
+                    urls[photo.id] = URL.createObjectURL(data);
+                }
+            }
+            setSustentoUrls(prev => {
+                Object.values(prev).forEach(url => URL.revokeObjectURL(url));
+                return urls;
+            });
+        };
+        downloadAll();
+    }, [sustentoPhotos]);
+
     const fetchTrip = async () => {
         const { data } = await supabase
             .from('trips')
@@ -90,6 +123,16 @@ const TripDetails = () => {
         setTrip(data);
         if (data?.trip_photos) {
             setAdditionalDocs(data.trip_photos.filter(p => p.photo_type === 'additional'));
+            setSustentoPhotos(data.trip_photos.filter(p => p.photo_type === 'sustento'));
+        }
+        // Fetch client name
+        if (data?.client_id) {
+            const { data: clientData } = await supabase
+                .from('clients')
+                .select('name')
+                .eq('id', data.client_id)
+                .single();
+            setClientName(clientData?.name || null);
         }
         setLoading(false);
     };
@@ -394,7 +437,7 @@ const TripDetails = () => {
                         </div>
                     </div>
 
-                    {/* Weight Row */}
+                    {/* Service Type & Client Row */}
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
                         <div style={{ flex: 1, background: '#F8FAFC', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
                             <div style={{
@@ -403,10 +446,24 @@ const TripDetails = () => {
                                 letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.25rem',
                                 display: 'flex', alignItems: 'center', gap: '0.375rem'
                             }}>
-                                <Scale size={14} color="var(--primary-red)" /> Peso Registrado
+                                {trip.service_type === 'embarque' ? <ArrowUpFromLine size={14} color="var(--primary-red)" /> : trip.service_type === 'descarga' ? <ArrowDownToLine size={14} color="var(--primary-red)" /> : <Repeat2 size={14} color="var(--primary-red)" />}
+                                Tipo de Servicio
                             </div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--text-dark)' }}>
-                                {trip.weight ? `${Number(trip.weight).toLocaleString('es-PE')} kg` : '—'}
+                            <div style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-dark)', textTransform: 'capitalize' }}>
+                                {trip.service_type || '—'}
+                            </div>
+                        </div>
+                        <div style={{ flex: 1, background: '#F8FAFC', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                            <div style={{
+                                fontSize: '0.65rem', fontWeight: '800',
+                                color: 'var(--text-medium)',
+                                letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.25rem',
+                                display: 'flex', alignItems: 'center', gap: '0.375rem'
+                            }}>
+                                <Building2 size={14} color="var(--primary-red)" /> Cliente
+                            </div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-dark)' }}>
+                                {clientName || '—'}
                             </div>
                         </div>
                     </div>
@@ -440,7 +497,7 @@ const TripDetails = () => {
                                             <div style={{ fontSize: '1rem', fontWeight: '800', color: '#9A3412', letterSpacing: '0.02em', marginBottom: '0.25rem' }}>
                                                 {container.container_number}
                                             </div>
-                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                                 {container.dimension && (
                                                     <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#B45309', background: '#FFEDD5', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
                                                         {container.dimension}'
@@ -449,6 +506,11 @@ const TripDetails = () => {
                                                 {container.condition && (
                                                     <span style={{ fontSize: '0.65rem', fontWeight: '700', color: '#B45309', background: '#FFEDD5', padding: '0.15rem 0.4rem', borderRadius: '4px' }}>
                                                         {container.condition}
+                                                    </span>
+                                                )}
+                                                {container.cargo_type && (
+                                                    <span style={{ fontSize: '0.65rem', fontWeight: '700', color: container.cargo_type === 'imo' ? '#DC2626' : container.cargo_type === 'iqbf' ? '#7C3AED' : '#0369A1', background: container.cargo_type === 'imo' ? '#FEE2E2' : container.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE', padding: '0.15rem 0.4rem', borderRadius: '4px', textTransform: 'uppercase' }}>
+                                                        {container.cargo_type === 'general' ? 'Carga General' : container.cargo_type.toUpperCase()}
                                                     </span>
                                                 )}
                                             </div>
@@ -495,6 +557,44 @@ const TripDetails = () => {
                         </>
                     )}
                 </div>
+
+                {/* ===== Fotos de Sustento Card ===== */}
+                {sustentoPhotos.length > 0 && (
+                    <div style={{
+                        background: 'var(--bg-card)',
+                        borderRadius: '20px',
+                        padding: '1.5rem',
+                        boxShadow: 'var(--shadow-sm)',
+                        marginBottom: '1.25rem'
+                    }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-dark)', margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Image size={18} /> Fotos de Sustento ({sustentoPhotos.length})
+                        </h3>
+                        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            {sustentoPhotos.map((photo, idx) => {
+                                const url = sustentoUrls[photo.id];
+                                return (
+                                    <div key={photo.id} style={{
+                                        width: 'calc(33.33% - 0.5rem)', aspectRatio: '1',
+                                        borderRadius: '12px', overflow: 'hidden',
+                                        background: '#F3F4F6', border: '1px solid #E5E7EB',
+                                        cursor: url ? 'pointer' : 'default'
+                                    }}
+                                        onClick={() => { if (url) { setModalImageUrl(url); setShowImageModal(true); } }}
+                                    >
+                                        {url ? (
+                                            <img src={url} alt={`Sustento ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF' }}>
+                                                <Image size={24} />
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
 
                 {/* ===== Ticket de Pesaje Card ===== */}
                 <div style={{

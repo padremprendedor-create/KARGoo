@@ -11,6 +11,8 @@ import AdminDrivers from './pages/AdminDrivers';
 import AdminTrips from './pages/AdminTrips';
 import AdminVehicles from './pages/AdminVehicles';
 import AdminRoutes from './pages/AdminRoutes';
+import AdminClients from './pages/AdminClients';
+import TimelineView from './pages/TimelineView';
 import NewTripFlow from './pages/NewTripFlow';
 import ActiveTrip from './pages/ActiveTrip';
 import WeighingCamera from './pages/WeighingCamera';
@@ -348,6 +350,22 @@ function App() {
           element={
             <ProtectedRoute>
               <AdminRoutes />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/clients"
+          element={
+            <ProtectedRoute>
+              <AdminClients />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/timeline"
+          element={
+            <ProtectedRoute>
+              <TimelineView />
             </ProtectedRoute>
           }
         />
