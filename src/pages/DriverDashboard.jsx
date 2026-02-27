@@ -23,17 +23,6 @@ const DriverDashboard = () => {
     const navigate = useNavigate();
 
     const fetchData = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return navigate('/');
-
-        const { data: profileData } = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('id', user.id)
-            .single();
-        setProfile(profileData);
-
-        const { data: trips } = await supabase
         setLoading(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -139,6 +128,13 @@ const DriverDashboard = () => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
+
+            // Close any existing open maintenance/inactivo records first
+            await supabase
+                .from('driver_activities')
+                .update({ end_time: new Date().toISOString() })
+                .eq('driver_id', user.id)
+                .is('end_time', null);
 
             let photoUrl = null;
             if (maintenancePhoto) {

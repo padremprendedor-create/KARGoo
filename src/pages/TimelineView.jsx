@@ -54,49 +54,73 @@ const formatDec = (dec) => {
 };
 
 /**
- * Convert a UTC timestamp to a local HH:MM string
+ * Convert a UTC timestamp to a local HH:MM string in America/Lima
  */
 const timestampToLocal = (ts) => {
-    const d = new Date(ts);
-    const h = d.getHours();
-    const m = d.getMinutes();
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const d = typeof ts === 'string' ? new Date(ts) : ts;
+    const options = { timeZone: 'America/Lima', hour12: false, hour: '2-digit', minute: '2-digit' };
+    let timeStr = new Intl.DateTimeFormat('es-PE', options).format(d);
+    // Node / some browsers might return "24:xx" instead of "00:xx"
+    const parts = timeStr.split(':');
+    if (parts[0] === '24') {
+        timeStr = `00:${parts[1]}`;
+    }
+    return timeStr;
 };
 
 /**
  * Build activity segments for a single driver from their trips and maintenance logs.
  */
-const buildDriverTimeline = (trips, activities, shiftConfig) => {
+const buildDriverTimeline = (trips, activities, shiftConfig, dayStartStr, dayEndStr) => {
     const segments = [];
+    const shiftStart = new Date(dayStartStr);
+    const shiftEnd = new Date(dayEndStr);
+    const now = new Date();
 
     // Add trip segments (viaje)
     trips.forEach((trip) => {
         if (!trip.start_time) return;
-        const startLocal = timestampToLocal(trip.start_time);
-        const endLocal = trip.end_time ? timestampToLocal(trip.end_time) : null;
+        const startObj = new Date(trip.start_time);
+        const endObj = trip.end_time ? new Date(trip.end_time) : now;
+
+        const effectiveStart = startObj < shiftStart ? shiftStart : startObj;
+        const effectiveEnd = endObj > shiftEnd ? shiftEnd : endObj;
+
+        // Skip if effectively out of bounds
+        if (effectiveStart >= shiftEnd || effectiveEnd <= shiftStart) return;
 
         segments.push({
             type: 'viaje',
-            start: startLocal,
-            end: endLocal || formatDec(shiftConfig.endHour), // if still in progress, extend to range end
+            start: timestampToLocal(effectiveStart),
+            end: timestampToLocal(effectiveEnd),
             tripStatus: trip.status,
             origin: trip.origin,
             destination: trip.destination,
+            rawStart: startObj,
+            rawEnd: endObj
         });
     });
 
     // Add maintenance / inactivo segments
     activities.forEach((act) => {
         if (!act.start_time) return;
-        const startLocal = timestampToLocal(act.start_time);
-        const endLocal = act.end_time ? timestampToLocal(act.end_time) : null;
+        const startObj = new Date(act.start_time);
+        const endObj = act.end_time ? new Date(act.end_time) : now;
+
+        const effectiveStart = startObj < shiftStart ? shiftStart : startObj;
+        const effectiveEnd = endObj > shiftEnd ? shiftEnd : endObj;
+
+        // Skip if effectively out of bounds
+        if (effectiveStart >= shiftEnd || effectiveEnd <= shiftStart) return;
 
         segments.push({
             type: act.type,
-            start: startLocal,
-            end: endLocal || formatDec(shiftConfig.endHour), // still active
+            start: timestampToLocal(effectiveStart),
+            end: timestampToLocal(effectiveEnd),
             reason: act.reason || '',
             photo_url: act.photo_url || null,
+            rawStart: startObj,
+            rawEnd: endObj
         });
     });
 
@@ -218,7 +242,7 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
                 cursor: isMaint ? 'pointer' : 'default',
                 transition: 'filter 0.15s ease',
                 filter: hover && isMaint ? 'brightness(1.1)' : 'none',
-                zIndex: isMaint ? 3 : 1,
+                zIndex: activity.type === 'viaje' ? 4 : isMaint ? 3 : 1,
             }}
         >
             {isMaint && hover && <MaintenancePopup activity={activity} />}
@@ -465,8 +489,13 @@ const LegendItem = ({ color, label }) => (
 
 // ── Main Component ──────────────────────────────────────────────────
 const TimelineView = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const [selectedDate, setSelectedDate] = useState(today);
+    // Get today's date in Lima timezone (UTC-5)
+    const getLimaDate = () => {
+        const now = new Date();
+        const limaStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(now); // YYYY-MM-DD
+        return limaStr;
+    };
+    const [selectedDate, setSelectedDate] = useState(getLimaDate);
     const [selectedShift, setSelectedShift] = useState('morning');
     const [drivers, setDrivers] = useState([]);
     const [tripsMap, setTripsMap] = useState({});
@@ -476,15 +505,21 @@ const TimelineView = () => {
     const shiftConfig = getShiftConfig(selectedShift);
 
     const getDateRange = useCallback(() => {
-        const dStart = new Date(`${selectedDate}T00:00:00`);
+        // Lima is UTC-5.  Build ISO strings explicitly.
+        // selectedDate is YYYY-MM-DD in Lima.
+        const LIMA_OFFSET = 5; // hours behind UTC
 
-        // For morning: today 06:00 to 18:00
-        // For afternoon: today 18:00 to next day 06:00
-        const dayStart = new Date(dStart.getTime());
-        dayStart.setHours(shiftConfig.startHour, 0, 0, 0);
+        let startHour = shiftConfig.startHour; // 6 or 18
+        let endHour = shiftConfig.endHour;       // 18 or 30
 
-        const dayEnd = new Date(dStart.getTime());
-        dayEnd.setHours(shiftConfig.endHour, 0, 0, 0);
+        // Convert Lima hours to UTC hours
+        const startUtcH = startHour + LIMA_OFFSET;
+        const endUtcH = endHour + LIMA_OFFSET;
+
+        // Build dayStart in UTC
+        const [y, m, d] = selectedDate.split('-').map(Number);
+        const dayStart = new Date(Date.UTC(y, m - 1, d, startUtcH, 0, 0, 0));
+        const dayEnd = new Date(Date.UTC(y, m - 1, d, endUtcH, 0, 0, 0));
 
         return { dayStart: dayStart.toISOString(), dayEnd: dayEnd.toISOString() };
     }, [selectedDate, shiftConfig.startHour, shiftConfig.endHour]);
@@ -599,12 +634,15 @@ const TimelineView = () => {
                         <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-light)' }}>No hay conductores registrados.</div>
                     ) : (
                         <div style={{ minWidth: '700px' }}>
-                            {drivers.map((driver) => {
-                                const driverTrips = tripsMap[driver.id] || [];
-                                const driverActs = activitiesMap[driver.id] || [];
-                                const segments = buildDriverTimeline(driverTrips, driverActs, shiftConfig);
-                                return <DriverRow key={driver.id} driver={driver} segments={segments} shiftConfig={shiftConfig} />;
-                            })}
+                            {(() => {
+                                const { dayStart, dayEnd } = getDateRange();
+                                return drivers.map((driver) => {
+                                    const driverTrips = tripsMap[driver.id] || [];
+                                    const driverActs = activitiesMap[driver.id] || [];
+                                    const segments = buildDriverTimeline(driverTrips, driverActs, shiftConfig, dayStart, dayEnd);
+                                    return <DriverRow key={driver.id} driver={driver} segments={segments} shiftConfig={shiftConfig} />;
+                                });
+                            })()}
                         </div>
                     )}
                 </div>
