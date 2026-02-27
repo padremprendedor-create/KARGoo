@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Plus, Truck, Clock, ChevronRight, Menu, Bell, Camera, CheckCircle, BarChart3 } from 'lucide-react';
+import { MapPin, Plus, Truck, Clock, ChevronRight, Menu, Bell, Camera, CheckCircle, BarChart3, Wrench, X, ImageIcon, Upload } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import SidebarDrawer from '../components/SidebarDrawer';
@@ -13,6 +13,13 @@ const DriverDashboard = () => {
     const [nextTrips, setNextTrips] = useState([]);
     const [weighingDone, setWeighingDone] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [activeMaintenance, setActiveMaintenance] = useState(null);
+    const [showMaintenance, setShowMaintenance] = useState(false);
+    const [maintenanceText, setMaintenanceText] = useState('');
+    const [maintenancePhoto, setMaintenancePhoto] = useState(null);
+    const [maintenancePhotoPreview, setMaintenancePhotoPreview] = useState(null);
+    const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
+    const maintenanceFileRef = useRef(null);
     const navigate = useNavigate();
 
     const fetchData = async () => {
@@ -27,34 +34,146 @@ const DriverDashboard = () => {
         setProfile(profileData);
 
         const { data: trips } = await supabase
-            .from('trips')
-            .select('*, trip_containers(*), trip_photos(*)')
-            .eq('driver_id', user.id)
-            .eq('status', 'in_progress')
-            .limit(1);
+        setLoading(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                navigate('/');
+                return;
+            }
 
-        if (trips && trips.length > 0) {
-            const trip = trips[0];
-            setActiveTrip(trip);
+            const { data: profileData } = await supabase
+                .from('profiles')
+                .select('full_name')
+                .eq('id', user.id)
+                .single();
+            setProfile(profileData);
 
-            // Validation: Must have weight > 0 AND a ticket photo
-            const hasWeight = trip.weight > 0;
-            const hasTicketPhoto = trip.trip_photos?.some(p => p.photo_type === 'ticket');
-            setWeighingDone(hasWeight && hasTicketPhoto);
-        } else {
-            setActiveTrip(null);
-            setWeighingDone(false);
+            const { data: trips } = await supabase
+                .from('trips')
+                .select('*, trip_containers(*), trip_photos(*)')
+                .eq('driver_id', user.id)
+                .eq('status', 'in_progress')
+                .limit(1);
+
+            const active = trips && trips.length > 0 ? trips[0] : null;
+
+            if (active) {
+                setActiveTrip(active);
+                setNextTrips([]);
+                // Also check if there's any active weighing for this trip
+                const { data: cw } = await supabase
+                    .from('trip_pesajes')
+                    .select('id')
+                    .eq('trip_id', active.id)
+                    .isNull('end_time')
+                    .maybeSingle();
+                setWeighingDone(!!cw);
+            } else {
+                setActiveTrip(null);
+                setWeighingDone(false);
+                const { data: next } = await supabase
+                    .from('trips')
+                    .select('*')
+                    .eq('driver_id', user.id)
+                    .eq('status', 'created') // Changed from 'pending' to 'created' to match original logic
+                    .order('start_time', { ascending: true });
+                setNextTrips(next || []);
+            }
+
+            // Check if there is an active maintenance (inactivo or mantenimiento with no end_time)
+            const { data: maintenanceData } = await supabase
+                .from('driver_activities')
+                .select('*')
+                .eq('driver_id', user.id)
+                .in('type', ['mantenimiento', 'inactivo'])
+                .isNull('end_time')
+                .order('start_time', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            setActiveMaintenance(maintenanceData || null);
+
+        } catch (error) {
+            console.error('Error fetching driver data:', error);
+        } finally {
+            setLoading(false);
         }
+    };
 
-        const { data: next } = await supabase
-            .from('trips')
-            .select('*')
-            .eq('driver_id', user.id)
-            .eq('status', 'created')
-            .order('start_time', { ascending: true });
+    const handleFinishMaintenance = async () => {
+        if (!activeMaintenance) return;
+        setLoading(true);
+        try {
+            const { error } = await supabase
+                .from('driver_activities')
+                .update({ end_time: new Date().toISOString() })
+                .eq('id', activeMaintenance.id);
 
-        setNextTrips(next || []);
-        setLoading(false);
+            if (error) throw error;
+
+            alert('Mantenimiento finalizado correctamente.');
+            fetchData(); // Refresh data
+        } catch (err) {
+            console.error('Error finishing maintenance:', err);
+            alert('Error al finalizar el mantenimiento.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleMaintenancePhotoChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setMaintenancePhoto(file);
+            setMaintenancePhotoPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleMaintenanceSubmit = async () => {
+        if (!maintenanceText.trim()) {
+            alert('Por favor, describe el motivo del mantenimiento.');
+            return;
+        }
+        setMaintenanceSubmitting(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            let photoUrl = null;
+            if (maintenancePhoto) {
+                const ext = maintenancePhoto.name.split('.').pop();
+                const filePath = `maintenance/${user.id}/${Date.now()}.${ext}`;
+                const { error: uploadError } = await supabase.storage
+                    .from('trip-photos')
+                    .upload(filePath, maintenancePhoto);
+                if (uploadError) throw uploadError;
+                photoUrl = filePath;
+            }
+
+            const { error } = await supabase
+                .from('driver_activities')
+                .insert([{
+                    driver_id: user.id,
+                    type: 'mantenimiento',
+                    reason: maintenanceText.trim(),
+                    photo_url: photoUrl,
+                    start_time: new Date().toISOString(),
+                }]);
+            if (error) throw error;
+
+            alert('Reporte de mantenimiento enviado correctamente.');
+            setShowMaintenance(false);
+            setMaintenanceText('');
+            setMaintenancePhoto(null);
+            setMaintenancePhotoPreview(null);
+            fetchData(); // Refresh to show active maintenance
+        } catch (err) {
+            console.error('Error submitting maintenance:', err);
+            alert('Error al enviar el reporte de mantenimiento.');
+        } finally {
+            setMaintenanceSubmitting(false);
+        }
     };
 
     // Fetch fresh data on mount and whenever the page regains visibility
@@ -332,51 +451,105 @@ const DriverDashboard = () => {
                             <p style={{ fontSize: '0.95rem', color: 'var(--text-medium)', maxWidth: '280px', margin: '0 auto 2rem', lineHeight: '1.6' }}>
                                 Inicia un nuevo viaje para comenzar tu jornada de hoy.
                             </p>
-                            <button
-                                onClick={() => navigate('/driver/new-trip')}
-                                style={{
-                                    background: 'var(--primary-red)',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '1rem 2rem',
-                                    borderRadius: '16px',
-                                    fontWeight: '800',
-                                    fontSize: '1rem',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    boxShadow: '0 4px 12px rgba(211, 47, 47, 0.3)',
-                                    width: '100%',
-                                    justifyContent: 'center',
-                                    transition: 'transform 0.1s'
-                                }}
-                            >
-                                <Plus size={24} strokeWidth={3} /> NUEVO VIAJE
-                            </button>
+                            {/* Action Buttons Container */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                {activeMaintenance ? (
+                                    <button
+                                        onClick={handleFinishMaintenance}
+                                        style={{
+                                            background: '#F97316',
+                                            color: 'white',
+                                            border: 'none',
+                                            padding: '1rem 2rem',
+                                            borderRadius: '16px',
+                                            fontWeight: '800',
+                                            fontSize: '1rem',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.5rem',
+                                            boxShadow: '0 4px 12px rgba(249, 115, 22, 0.3)',
+                                            width: '100%',
+                                            justifyContent: 'center',
+                                            transition: 'transform 0.1s',
+                                        }}
+                                    >
+                                        <CheckCircle size={24} strokeWidth={2.5} /> FINALIZAR MANTENIMIENTO
+                                    </button>
+                                ) : (
+                                    <>
+                                        {/* Nuevo Viaje */}
+                                        <button
+                                            onClick={() => navigate('/driver/new-trip')}
+                                            style={{
+                                                background: 'var(--primary-red)', // Changed from primary-gradient to primary-red to match original
+                                                color: 'white',
+                                                border: 'none',
+                                                padding: '1rem 2rem',
+                                                borderRadius: '16px',
+                                                fontWeight: '800',
+                                                fontSize: '1rem',
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.5rem',
+                                                boxShadow: '0 4px 12px rgba(211, 47, 47, 0.3)', // Adjusted shadow color
+                                                width: '100%',
+                                                justifyContent: 'center',
+                                                transition: 'transform 0.1s',
+                                            }}
+                                        >
+                                            <Plus size={24} strokeWidth={3} /> NUEVO VIAJE
+                                        </button>
 
-                            {/* Reports Quick Access */}
-                            <button
-                                onClick={() => navigate('/driver/reports')}
-                                style={{
-                                    marginTop: '1rem',
-                                    background: 'transparent',
-                                    color: 'var(--text-light)',
-                                    border: '1px solid var(--border-light)',
-                                    padding: '0.75rem 2rem',
-                                    borderRadius: '16px',
-                                    fontWeight: '600',
-                                    fontSize: '0.9rem',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    width: '100%',
-                                    justifyContent: 'center',
-                                }}
-                            >
-                                <BarChart3 size={20} /> Mis Reportes
-                            </button>
+                                        {/* Maintenance Button */}
+                                        <button
+                                            onClick={() => setShowMaintenance(true)}
+                                            style={{
+                                                background: '#F97316',
+                                                color: 'white',
+                                                border: 'none',
+                                                padding: '1rem 2rem',
+                                                borderRadius: '16px',
+                                                fontWeight: '800',
+                                                fontSize: '1rem',
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.5rem',
+                                                boxShadow: '0 4px 12px rgba(249, 115, 22, 0.3)',
+                                                width: '100%',
+                                                justifyContent: 'center',
+                                                transition: 'transform 0.1s',
+                                            }}
+                                        >
+                                            <Wrench size={22} strokeWidth={2.5} /> MANTENIMIENTO
+                                        </button>
+                                    </>
+                                )}
+
+                                {/* Reports Quick Access */}
+                                <button
+                                    onClick={() => navigate('/driver/reports')}
+                                    style={{
+                                        background: 'transparent',
+                                        color: 'var(--text-light)',
+                                        border: '1px solid var(--border-light)',
+                                        padding: '0.75rem 2rem',
+                                        borderRadius: '16px',
+                                        fontWeight: '600',
+                                        fontSize: '0.9rem',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: '0.5rem',
+                                        width: '100%',
+                                    }}
+                                >
+                                    <BarChart3 size={20} /> Mis Reportes
+                                </button>
+                            </div>
                         </Card>
                     )}
                 </section>
@@ -433,6 +606,202 @@ const DriverDashboard = () => {
                     </div>
                 </section>
             </div>
+
+            {/* ===== Maintenance Modal ===== */}
+            {showMaintenance && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60,
+                    backdropFilter: 'blur(4px)', padding: '1rem',
+                }}>
+                    <div style={{
+                        background: 'white', borderRadius: '20px', width: '100%', maxWidth: '460px',
+                        boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.35)',
+                        overflow: 'hidden',
+                    }}>
+                        {/* Modal Header */}
+                        <div style={{
+                            padding: '1.25rem 1.5rem',
+                            borderBottom: '1px solid #E5E7EB',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            background: '#FFF7ED',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{
+                                    width: '40px', height: '40px', borderRadius: '12px',
+                                    background: '#F97316', display: 'flex',
+                                    alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    <Wrench size={20} color="white" />
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#1F2937', margin: 0 }}>
+                                        Reporte de Mantenimiento
+                                    </h2>
+                                    <p style={{ fontSize: '0.75rem', color: '#9CA3AF', margin: 0, fontWeight: '500' }}>
+                                        Describe el motivo y adjunta evidencia
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowMaintenance(false);
+                                    setMaintenanceText('');
+                                    setMaintenancePhoto(null);
+                                    setMaintenancePhotoPreview(null);
+                                }}
+                                style={{
+                                    background: 'none', border: 'none', cursor: 'pointer',
+                                    color: '#9CA3AF', padding: '4px', borderRadius: '8px',
+                                }}
+                            >
+                                <X size={22} />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div style={{ padding: '1.5rem' }}>
+                            {/* Description */}
+                            <label style={{
+                                display: 'block', fontSize: '0.8rem', fontWeight: '700',
+                                color: '#374151', marginBottom: '0.5rem',
+                            }}>
+                                Descripción del mantenimiento
+                            </label>
+                            <textarea
+                                value={maintenanceText}
+                                onChange={(e) => setMaintenanceText(e.target.value)}
+                                placeholder="Ej: Cambio de aceite, revisión de frenos, llanta ponchada..."
+                                rows={4}
+                                style={{
+                                    width: '100%', padding: '0.875rem',
+                                    borderRadius: '12px', border: '1px solid #E5E7EB',
+                                    fontSize: '0.9rem', color: '#1F2937',
+                                    resize: 'vertical', outline: 'none',
+                                    fontFamily: 'inherit', boxSizing: 'border-box',
+                                    transition: 'border-color 0.2s',
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#F97316'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+
+                            {/* Photo Upload */}
+                            <label style={{
+                                display: 'block', fontSize: '0.8rem', fontWeight: '700',
+                                color: '#374151', marginBottom: '0.5rem', marginTop: '1.25rem',
+                            }}>
+                                Foto de evidencia
+                            </label>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                ref={maintenanceFileRef}
+                                onChange={handleMaintenancePhotoChange}
+                                style={{ display: 'none' }}
+                            />
+                            {maintenancePhotoPreview ? (
+                                <div style={{ position: 'relative' }}>
+                                    <img
+                                        src={maintenancePhotoPreview}
+                                        alt="Evidencia"
+                                        style={{
+                                            width: '100%', aspectRatio: '16/10',
+                                            objectFit: 'cover', borderRadius: '12px',
+                                            border: '2px solid #F97316',
+                                        }}
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            setMaintenancePhoto(null);
+                                            setMaintenancePhotoPreview(null);
+                                            if (maintenanceFileRef.current) maintenanceFileRef.current.value = '';
+                                        }}
+                                        style={{
+                                            position: 'absolute', top: '8px', right: '8px',
+                                            background: 'rgba(0,0,0,0.6)', border: 'none',
+                                            borderRadius: '50%', width: '32px', height: '32px',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: 'pointer', color: 'white',
+                                        }}
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => maintenanceFileRef.current?.click()}
+                                    style={{
+                                        width: '100%', padding: '2rem',
+                                        borderRadius: '12px',
+                                        border: '2px dashed #D1D5DB',
+                                        background: '#FAFAFA',
+                                        display: 'flex', flexDirection: 'column',
+                                        alignItems: 'center', justifyContent: 'center',
+                                        gap: '0.5rem', cursor: 'pointer',
+                                        transition: 'border-color 0.2s, background 0.2s',
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.borderColor = '#F97316';
+                                        e.currentTarget.style.background = '#FFF7ED';
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.borderColor = '#D1D5DB';
+                                        e.currentTarget.style.background = '#FAFAFA';
+                                    }}
+                                >
+                                    <Camera size={32} color="#9CA3AF" strokeWidth={1.5} />
+                                    <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#6B7280' }}>
+                                        Tomar foto o seleccionar archivo
+                                    </span>
+                                    <span style={{ fontSize: '0.7rem', color: '#9CA3AF' }}>
+                                        JPG, PNG (máximo 10MB)
+                                    </span>
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div style={{
+                            padding: '1rem 1.5rem', borderTop: '1px solid #E5E7EB',
+                            display: 'flex', gap: '0.75rem',
+                        }}>
+                            <button
+                                onClick={() => {
+                                    setShowMaintenance(false);
+                                    setMaintenanceText('');
+                                    setMaintenancePhoto(null);
+                                    setMaintenancePhotoPreview(null);
+                                }}
+                                style={{
+                                    flex: 1, padding: '0.875rem',
+                                    background: 'white', color: '#6B7280',
+                                    border: '1px solid #E5E7EB', borderRadius: '12px',
+                                    fontWeight: '700', fontSize: '0.9rem', cursor: 'pointer',
+                                }}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleMaintenanceSubmit}
+                                disabled={maintenanceSubmitting || !maintenanceText.trim()}
+                                style={{
+                                    flex: 1, padding: '0.875rem',
+                                    background: maintenanceText.trim() ? '#F97316' : '#FDBA74',
+                                    color: 'white', border: 'none', borderRadius: '12px',
+                                    fontWeight: '700', fontSize: '0.9rem',
+                                    cursor: maintenanceText.trim() ? 'pointer' : 'not-allowed',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                    boxShadow: maintenanceText.trim() ? '0 4px 12px rgba(249, 115, 22, 0.3)' : 'none',
+                                    transition: 'background 0.2s',
+                                }}
+                            >
+                                {maintenanceSubmitting ? 'Enviando...' : <><Wrench size={18} /> Enviar Reporte</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -96,6 +96,7 @@ const buildDriverTimeline = (trips, activities, shiftConfig) => {
             start: startLocal,
             end: endLocal || formatDec(shiftConfig.endHour), // still active
             reason: act.reason || '',
+            photo_url: act.photo_url || null,
         });
     });
 
@@ -107,43 +108,83 @@ const buildDriverTimeline = (trips, activities, shiftConfig) => {
 
 // ── Sub-components ──────────────────────────────────────────────────
 
-const MaintenancePopup = ({ activity }) => (
-    <div
-        style={{
-            position: 'absolute',
-            bottom: 'calc(100% + 8px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: '#1F2937',
-            color: '#fff',
-            padding: '0.5rem 0.75rem',
-            borderRadius: '8px',
-            fontSize: '0.75rem',
-            whiteSpace: 'nowrap',
-            zIndex: 20,
-            pointerEvents: 'none',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-        }}
-    >
-        <div style={{ fontWeight: 600 }}>Mantenimiento: {activity.reason || 'Sin motivo'}</div>
-        <div style={{ color: '#D1D5DB', marginTop: '2px' }}>
-            Hora: {activity.start} – {activity.end}
-        </div>
+const MaintenancePopup = ({ activity }) => {
+    const [imgUrl, setImgUrl] = useState(null);
+
+    useEffect(() => {
+        if (activity.photo_url) {
+            let isMounted = true;
+            const fetchPhoto = async () => {
+                try {
+                    let fp = activity.photo_url;
+                    if (fp.startsWith('http')) {
+                        const marker = '/object/public/trip-photos/';
+                        const idx = fp.indexOf(marker);
+                        if (idx !== -1) fp = fp.slice(idx + marker.length);
+                    }
+                    const { data, error } = await supabase.storage.from('trip-photos').download(fp);
+                    if (!error && isMounted) {
+                        setImgUrl(URL.createObjectURL(data));
+                    }
+                } catch (e) {
+                    console.error('Error downloading maintenance photo', e);
+                }
+            };
+            fetchPhoto();
+            return () => { isMounted = false; };
+        }
+    }, [activity.photo_url]);
+
+    return (
         <div
             style={{
                 position: 'absolute',
-                bottom: '-5px',
+                bottom: 'calc(100% + 8px)',
                 left: '50%',
                 transform: 'translateX(-50%)',
-                width: 0,
-                height: 0,
-                borderLeft: '6px solid transparent',
-                borderRight: '6px solid transparent',
-                borderTop: '6px solid #1F2937',
+                background: '#1F2937',
+                color: '#fff',
+                padding: '0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.75rem',
+                whiteSpace: 'nowrap',
+                zIndex: 50, // Higher z-index to stay above everything
+                pointerEvents: 'none',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.25rem',
+                minWidth: '150px'
             }}
-        />
-    </div>
-);
+        >
+            <div style={{ fontWeight: 600, color: '#F97316' }}>Mantenimiento</div>
+            <div style={{ fontWeight: 500, whiteSpace: 'pre-wrap', maxWidth: '200px' }}>{activity.reason || 'Sin motivo'}</div>
+            <div style={{ color: '#9CA3AF', fontSize: '0.7rem', marginTop: '2px' }}>
+                {activity.start} – {activity.end}
+            </div>
+
+            {imgUrl && (
+                <div style={{ marginTop: '0.5rem', width: '200px', height: '140px', borderRadius: '4px', overflow: 'hidden', background: '#374151' }}>
+                    <img src={imgUrl} alt="Evidencia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+            )}
+
+            <div
+                style={{
+                    position: 'absolute',
+                    bottom: '-6px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: 0,
+                    height: 0,
+                    borderLeft: '7px solid transparent',
+                    borderRight: '7px solid transparent',
+                    borderTop: '7px solid #1F2937',
+                }}
+            />
+        </div>
+    );
+};
 
 const ActivityBlock = ({ activity, shiftConfig }) => {
     const [hover, setHover] = useState(false);
@@ -476,7 +517,7 @@ const TimelineView = () => {
 
         const { data: actData } = await supabase
             .from('driver_activities')
-            .select('id, driver_id, type, reason, start_time, end_time')
+            .select('id, driver_id, type, reason, photo_url, start_time, end_time')
             .lt('start_time', dayEnd)
             .or(`end_time.gt.${dayStart},end_time.is.null`);
 
