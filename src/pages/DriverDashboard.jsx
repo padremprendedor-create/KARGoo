@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, Plus, Truck, Clock, ChevronRight, Menu, Bell, Camera, CheckCircle, BarChart3, Wrench, X, ImageIcon, Upload } from 'lucide-react';
+import { MapPin, Plus, Truck, Clock, ChevronRight, Menu, Bell, Camera, CheckCircle, BarChart3, Wrench, X, ImageIcon, Upload, ShieldCheck, ClipboardCheck } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import SidebarDrawer from '../components/SidebarDrawer';
@@ -20,6 +20,15 @@ const DriverDashboard = () => {
     const [maintenancePhotoPreview, setMaintenancePhotoPreview] = useState(null);
     const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
     const maintenanceFileRef = useRef(null);
+    // CHEQUEO / IPERC
+    const [chequeoDoneToday, setChequeoDoneToday] = useState(false);
+    const [ipercDoneToday, setIpercDoneToday] = useState(false);
+    const [chequeoTime, setChequeoTime] = useState(null);
+    const [ipercTime, setIpercTime] = useState(null);
+    const [uploadingChequeo, setUploadingChequeo] = useState(false);
+    const [uploadingIperc, setUploadingIperc] = useState(false);
+    const chequeoFileRef = useRef(null);
+    const ipercFileRef = useRef(null);
     const navigate = useNavigate();
 
     const fetchData = async () => {
@@ -50,14 +59,9 @@ const DriverDashboard = () => {
             if (active) {
                 setActiveTrip(active);
                 setNextTrips([]);
-                // Also check if there's any active weighing for this trip
-                const { data: cw } = await supabase
-                    .from('trip_pesajes')
-                    .select('id')
-                    .eq('trip_id', active.id)
-                    .isNull('end_time')
-                    .maybeSingle();
-                setWeighingDone(!!cw);
+                // Check if a ticket photo has been uploaded for this trip
+                const hasTicket = active.trip_photos?.some(p => p.photo_type === 'ticket');
+                setWeighingDone(!!hasTicket);
             } else {
                 setActiveTrip(null);
                 setWeighingDone(false);
@@ -76,12 +80,29 @@ const DriverDashboard = () => {
                 .select('*')
                 .eq('driver_id', user.id)
                 .in('type', ['mantenimiento', 'inactivo'])
-                .isNull('end_time')
+                .is('end_time', null)
                 .order('start_time', { ascending: false })
                 .limit(1)
                 .maybeSingle();
 
             setActiveMaintenance(maintenanceData || null);
+
+            // Check if CHEQUEO/IPERC were uploaded today (from DB)
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const { data: dailyChecks } = await supabase
+                .from('driver_daily_checks')
+                .select('check_type, uploaded_at')
+                .eq('driver_id', user.id)
+                .gte('uploaded_at', todayStart.toISOString())
+                .order('uploaded_at', { ascending: false });
+
+            const chequeoCheck = dailyChecks?.find(c => c.check_type === 'chequeo');
+            const ipercCheck = dailyChecks?.find(c => c.check_type === 'iperc');
+            setChequeoDoneToday(!!chequeoCheck);
+            setIpercDoneToday(!!ipercCheck);
+            setChequeoTime(chequeoCheck ? new Date(chequeoCheck.uploaded_at) : null);
+            setIpercTime(ipercCheck ? new Date(ipercCheck.uploaded_at) : null);
 
         } catch (error) {
             console.error('Error fetching driver data:', error);
@@ -172,6 +193,54 @@ const DriverDashboard = () => {
         }
     };
 
+    // Upload CHEQUEO or IPERC photo
+    const handleDailyPhotoUpload = async (type) => {
+        const setter = type === 'chequeo' ? setUploadingChequeo : setUploadingIperc;
+        setter(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            const fileRef = type === 'chequeo' ? chequeoFileRef : ipercFileRef;
+            const file = fileRef.current?.files?.[0];
+            if (!file) return;
+
+            const ext = file.name.split('.').pop();
+            const todayKey = new Date().toISOString().slice(0, 10);
+            const filePath = `${type}/${user.id}/${todayKey}_${Date.now()}.${ext}`;
+            const { error: uploadError } = await supabase.storage
+                .from('trip-photos')
+                .upload(filePath, file);
+            if (uploadError) throw uploadError;
+
+            // Save record to DB with timestamp
+            const now = new Date();
+            const { error: dbError } = await supabase
+                .from('driver_daily_checks')
+                .insert({
+                    driver_id: user.id,
+                    check_type: type,
+                    photo_url: filePath,
+                    uploaded_at: now.toISOString()
+                });
+            if (dbError) console.error('Error saving daily check:', dbError);
+
+            if (type === 'chequeo') {
+                setChequeoDoneToday(true);
+                setChequeoTime(now);
+            } else {
+                setIpercDoneToday(true);
+                setIpercTime(now);
+            }
+
+            alert(`Foto de ${type.toUpperCase()} subida correctamente.`);
+        } catch (err) {
+            console.error(`Error uploading ${type}:`, err);
+            alert(`Error al subir foto de ${type.toUpperCase()}.`);
+        } finally {
+            setter(false);
+        }
+    };
+
     // Fetch fresh data on mount and whenever the page regains visibility
     useEffect(() => {
         fetchData();
@@ -234,14 +303,66 @@ const DriverDashboard = () => {
 
             {/* Greeting */}
             <div className="container" style={{ paddingTop: '2.5rem', paddingBottom: '1.5rem' }}>
-                <h1 style={{
-                    fontSize: '1.75rem',
-                    fontWeight: '800',
-                    color: 'var(--text-dark)',
-                    margin: '0 0 0.5rem',
-                }}>
-                    Hola, {firstName}
-                </h1>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                    <h1 style={{
+                        fontSize: '1.75rem',
+                        fontWeight: '800',
+                        color: 'var(--text-dark)',
+                        margin: 0,
+                    }}>
+                        Hola, {firstName}
+                    </h1>
+                    {/* CHEQUEO / IPERC buttons */}
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        {/* Hidden file inputs */}
+                        <input type="file" accept="image/*" capture="environment" ref={chequeoFileRef} style={{ display: 'none' }} onChange={() => handleDailyPhotoUpload('chequeo')} />
+                        <input type="file" accept="image/*" capture="environment" ref={ipercFileRef} style={{ display: 'none' }} onChange={() => handleDailyPhotoUpload('iperc')} />
+
+                        <button
+                            onClick={() => chequeoFileRef.current?.click()}
+                            disabled={uploadingChequeo || chequeoDoneToday}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '999px',
+                                border: chequeoDoneToday ? '1.5px solid #16A34A' : '1.5px solid var(--primary-red)',
+                                background: chequeoDoneToday ? '#F0FDF4' : '#FFF5F5',
+                                color: chequeoDoneToday ? '#16A34A' : 'var(--primary-red)',
+                                fontSize: '0.7rem',
+                                fontWeight: '800',
+                                cursor: chequeoDoneToday ? 'default' : 'pointer',
+                                opacity: uploadingChequeo ? 0.6 : 1,
+                                letterSpacing: '0.03em',
+                                transition: 'all 0.2s',
+                            }}
+                        >
+                            {chequeoDoneToday ? <CheckCircle size={14} /> : <ClipboardCheck size={14} />}
+                            {uploadingChequeo ? '...' : chequeoDoneToday && chequeoTime ? `CHEQUEO ${chequeoTime.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}` : 'CHEQUEO'}
+                        </button>
+
+                        <button
+                            onClick={() => ipercFileRef.current?.click()}
+                            disabled={uploadingIperc || ipercDoneToday}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                                padding: '0.4rem 0.75rem',
+                                borderRadius: '999px',
+                                border: ipercDoneToday ? '1.5px solid #16A34A' : '1.5px solid #7C3AED',
+                                background: ipercDoneToday ? '#F0FDF4' : '#F5F3FF',
+                                color: ipercDoneToday ? '#16A34A' : '#7C3AED',
+                                fontSize: '0.7rem',
+                                fontWeight: '800',
+                                cursor: ipercDoneToday ? 'default' : 'pointer',
+                                opacity: uploadingIperc ? 0.6 : 1,
+                                letterSpacing: '0.03em',
+                                transition: 'all 0.2s',
+                            }}
+                        >
+                            {ipercDoneToday ? <CheckCircle size={14} /> : <ShieldCheck size={14} />}
+                            {uploadingIperc ? '...' : ipercDoneToday && ipercTime ? `IPERC ${ipercTime.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}` : 'IPERC'}
+                        </button>
+                    </div>
+                </div>
                 <p style={{
                     fontSize: '1rem',
                     color: 'var(--text-medium)',
@@ -309,19 +430,39 @@ const DriverDashboard = () => {
                                 }}>
                                     {activeTrip.origin} → {activeTrip.destination}
                                 </h2>
-                                <p style={{ color: 'var(--text-medium)', fontSize: '0.9rem' }}>
-                                    <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
-                                        {activeTrip.trip_containers && activeTrip.trip_containers.length > 0 ? (
-                                            activeTrip.trip_containers.map((c, i) => (
-                                                <span key={i} style={{ fontSize: '0.8rem', color: 'var(--text-light)', background: '#F3F4F6', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
-                                                    {c.container_number}
-                                                </span>
-                                            ))
-                                        ) : (
-                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Sin contenedor</span>
-                                        )}
-                                    </div>
-                                </p>
+                                <div style={{ color: 'var(--text-medium)', fontSize: '0.9rem', marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                                    {activeTrip.trip_containers && activeTrip.trip_containers.length > 0 ? (
+                                        activeTrip.trip_containers.map((c, i) => (
+                                            <span key={i} style={{ fontSize: '0.75rem', color: 'var(--text-dark)', fontWeight: '600', background: '#F3F4F6', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
+                                                {c.container_number}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>Sin contenedor</span>
+                                    )}
+
+                                    {/* Badges: Service & Cargo */}
+                                    {activeTrip.service_type && (
+                                        <span style={{
+                                            background: '#F3F4F6', color: '#4B5563', padding: '0.3rem 0.85rem',
+                                            borderRadius: '8px', fontSize: '0.8rem', fontWeight: '800', textTransform: 'uppercase',
+                                            border: '1px solid #E5E7EB', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                        }}>
+                                            Servicio: {activeTrip.service_type}
+                                        </span>
+                                    )}
+                                    {activeTrip.cargo_type && (
+                                        <span style={{
+                                            background: activeTrip.cargo_type === 'imo' ? '#FEE2E2' : activeTrip.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE',
+                                            color: activeTrip.cargo_type === 'imo' ? '#DC2626' : activeTrip.cargo_type === 'iqbf' ? '#9333EA' : '#0284C7',
+                                            border: `1px solid ${activeTrip.cargo_type === 'imo' ? '#FECACA' : activeTrip.cargo_type === 'iqbf' ? '#E9D5FF' : '#BAE6FD'}`,
+                                            padding: '0.3rem 0.85rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '900', textTransform: 'uppercase',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                        }}>
+                                            Carga: {activeTrip.cargo_type}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Map Placeholder */}
@@ -476,27 +617,34 @@ const DriverDashboard = () => {
                                     <>
                                         {/* Nuevo Viaje */}
                                         <button
-                                            onClick={() => navigate('/driver/new-trip')}
+                                            onClick={() => chequeoDoneToday && navigate('/driver/new-trip')}
+                                            disabled={!chequeoDoneToday}
                                             style={{
-                                                background: 'var(--primary-red)', // Changed from primary-gradient to primary-red to match original
-                                                color: 'white',
+                                                background: chequeoDoneToday ? 'var(--primary-red)' : '#E5E7EB',
+                                                color: chequeoDoneToday ? 'white' : '#9CA3AF',
                                                 border: 'none',
                                                 padding: '1rem 2rem',
                                                 borderRadius: '16px',
                                                 fontWeight: '800',
                                                 fontSize: '1rem',
-                                                cursor: 'pointer',
+                                                cursor: chequeoDoneToday ? 'pointer' : 'not-allowed',
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
                                                 gap: '0.5rem',
-                                                boxShadow: '0 4px 12px rgba(211, 47, 47, 0.3)', // Adjusted shadow color
+                                                boxShadow: chequeoDoneToday ? '0 4px 12px rgba(211, 47, 47, 0.3)' : 'none',
                                                 width: '100%',
                                                 justifyContent: 'center',
-                                                transition: 'transform 0.1s',
+                                                transition: 'all 0.2s',
+                                                opacity: chequeoDoneToday ? 1 : 0.7,
                                             }}
                                         >
                                             <Plus size={24} strokeWidth={3} /> NUEVO VIAJE
                                         </button>
+                                        {!chequeoDoneToday && (
+                                            <p style={{ textAlign: 'center', fontSize: '0.75rem', color: '#EF4444', margin: '0.25rem 0 0', fontWeight: '600' }}>
+                                                Suba foto de CHEQUEO para iniciar un viaje
+                                            </p>
+                                        )}
 
                                         {/* Maintenance Button */}
                                         <button

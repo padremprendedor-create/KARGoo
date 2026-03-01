@@ -17,9 +17,10 @@ const NewTripFlow = () => {
     const [vehiclePlate, setVehiclePlate] = useState('');
     const [vehicles, setVehicles] = useState([]);
     const [containers, setContainers] = useState([
-        { number: '', dimension: '20', condition: 'LLENO', cargoType: 'general' }
+        { number: '', dimension: '20', condition: 'LLENO' }
     ]);
     const [kmStart, setKmStart] = useState('');
+    const [cargoType, setCargoType] = useState('general');
 
     // New fields
     const [serviceType, setServiceType] = useState('');
@@ -93,6 +94,7 @@ const NewTripFlow = () => {
                     km_start: kmStart ? parseFloat(kmStart) : null,
                     service_type: serviceType || null,
                     client_id: selectedClientId || null,
+                    cargo_type: cargoType,
                 })
                 .select('id')
                 .single();
@@ -111,7 +113,7 @@ const NewTripFlow = () => {
                     type: c.condition === 'LLENO' ? 'Full' : 'Empty',
                     dimension: c.dimension,
                     condition: c.condition,
-                    cargo_type: c.cargoType,
+                    cargo_type: cargoType, // Associate trip-level cargo_type with each container
                 }));
 
                 const { error: containerError } = await supabase
@@ -142,7 +144,7 @@ const NewTripFlow = () => {
     // Container management
     const addContainer = () => {
         if (containers.length < 3) {
-            setContainers([...containers, { number: '', dimension: '20', condition: 'LLENO', cargoType: 'general' }]);
+            setContainers([...containers, { number: '', dimension: '20', condition: 'LLENO' }]);
         }
     };
 
@@ -191,7 +193,7 @@ const NewTripFlow = () => {
 
     const canProceedStep1 = vehiclePlate.trim() && kmStart.trim() && serviceType && selectedClientId;
     const canProceedStep2 = origin && destination && origin !== destination;
-    const canProceedStep3 = containers.some(c => c.number.trim()) && containers.every(c => !c.number.trim() || c.cargoType);
+    const canProceedStep3 = containers.length > 0 && containers.every(c => c.number.trim().length >= 4) && cargoType;
 
     // Service type config
     const serviceTypes = [
@@ -464,60 +466,6 @@ const NewTripFlow = () => {
                             <span style={{ color: 'var(--primary-red)', fontWeight: '700', fontSize: '1rem', whiteSpace: 'nowrap' }}>KM</span>
                         </div>
                     </div>
-
-                    {/* Scan Plate Button */}
-                    <button
-                        onClick={() => setShowCamera(true)}
-                        style={{
-                            width: '100%',
-                            padding: '1rem',
-                            border: '2px dashed #D1D5DB',
-                            borderRadius: '20px',
-                            background: 'var(--bg-light)',
-                            color: 'var(--text-medium)',
-                            fontWeight: '600',
-                            fontSize: '1rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '0.75rem',
-                            marginBottom: '2rem',
-                            cursor: 'pointer',
-                        }}>
-                        {platePhoto ? (
-                            <>
-                                <img src={platePhoto} alt="Placa" style={{ width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px', border: '2px solid white', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }} />
-                                <span style={{ color: 'var(--primary-red)' }}>Foto Capturada (Repetir)</span>
-                            </>
-                        ) : (
-                            <>
-                                <div style={{ background: 'var(--border-light)', padding: '0.25rem', borderRadius: '6px' }}>
-                                    <Camera size={20} color="var(--text-light)" />
-                                </div>
-                                Escanear Placa
-                            </>
-                        )}
-                    </button>
-
-                    {showCamera && (
-                        <CameraCapture
-                            onCapture={(file) => { setPendingPlatePhoto(file); setShowCamera(false); }}
-                            onClose={() => setShowCamera(false)}
-                            overlayText="Encuadre la placa del vehículo"
-                        />
-                    )}
-
-                    {/* Plate Photo Confirmation */}
-                    {pendingPlatePhoto && (
-                        <PhotoConfirmModal
-                            photoSrc={pendingPlatePhoto}
-                            title="Foto de Placa"
-                            subtitle="Verifique que la placa sea legible antes de confirmar."
-                            confirmLabel="Confirmar Placa"
-                            onConfirm={() => { setPlatePhoto(pendingPlatePhoto); setPendingPlatePhoto(null); }}
-                            onRetake={() => { setPendingPlatePhoto(null); setShowCamera(true); }}
-                        />
-                    )}
 
                     {/* Next Button */}
                     <div style={{ marginTop: 'auto' }}>
@@ -807,6 +755,29 @@ const NewTripFlow = () => {
                             )}
                         </div>
 
+                        {/* Cargo Type (trip-level, above containers) */}
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.75rem' }}>
+                                TIPO DE CARGA *
+                            </span>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                {cargoTypes.map(ct => (
+                                    <button key={ct.key} onClick={() => setCargoType(ct.key)} style={{
+                                        flex: 1, padding: '0.75rem 0.5rem', borderRadius: '12px',
+                                        border: cargoType === ct.key ? '2px solid var(--primary-red)' : '2px solid var(--border-light)',
+                                        background: cargoType === ct.key ? '#FFF7ED' : 'var(--bg-card)',
+                                        color: cargoType === ct.key ? 'var(--primary-red)' : 'var(--text-medium)',
+                                        fontWeight: '800', fontSize: '0.9rem',
+                                        cursor: 'pointer', transition: 'all 0.2s',
+                                        boxShadow: cargoType === ct.key ? '0 2px 8px rgba(211, 47, 47, 0.15)' : 'none',
+                                    }}>
+                                        {ct.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+
                         {containers.map((container, index) => (
                             <div key={index} style={{
                                 background: 'var(--bg-card)',
@@ -929,29 +900,34 @@ const NewTripFlow = () => {
                                     </div>
                                 </div>
 
-                                {/* Cargo Type Toggle */}
-                                <div>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: '700', color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.5rem' }}>
-                                        Tipo de Carga *
-                                    </span>
-                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        {cargoTypes.map(ct => (
-                                            <button key={ct.key} onClick={() => updateContainer(index, 'cargoType', ct.key)} style={{
-                                                flex: 1, padding: '0.6rem 0.3rem', borderRadius: '10px',
-                                                border: container.cargoType === ct.key ? '2px solid var(--primary-red)' : '2px solid var(--border-light)',
-                                                background: container.cargoType === ct.key ? '#FFF7ED' : 'transparent',
-                                                color: container.cargoType === ct.key ? 'var(--primary-red)' : 'var(--text-medium)',
-                                                fontWeight: '700', fontSize: ct.key === 'general' ? '0.7rem' : '0.85rem',
-                                                cursor: 'pointer', transition: 'all 0.2s'
-                                            }}>
-                                                {ct.label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
                             </div>
                         ))}
                     </div>
+
+                    {containers.length < 3 && (
+                        <button
+                            onClick={addContainer}
+                            style={{
+                                width: '100%',
+                                padding: '1rem',
+                                border: '2px dashed var(--border-light)',
+                                borderRadius: '16px',
+                                background: 'transparent',
+                                color: 'var(--primary-red)',
+                                fontWeight: '700',
+                                fontSize: '1rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.5rem',
+                                cursor: 'pointer',
+                                marginBottom: '1.5rem',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <Plus size={20} /> + Agregar Contenedor (Máx 3)
+                        </button>
+                    )}
 
                     <div style={{ marginTop: 'auto' }}>
                         <button
@@ -980,41 +956,46 @@ const NewTripFlow = () => {
                         </button>
                     </div>
                 </div>
-            )}
+            )
+            }
 
             {/* Container Photo Camera Overlay */}
-            {containerCameraIndex !== null && (
-                <CameraCapture
-                    onCapture={(file) => {
-                        setPendingContainerPhoto(file);
-                        setPendingContainerIndex(containerCameraIndex);
-                        setContainerCameraIndex(null);
-                    }}
-                    onClose={() => setContainerCameraIndex(null)}
-                    overlayText="Encuadre el código del contenedor"
-                />
-            )}
+            {
+                containerCameraIndex !== null && (
+                    <CameraCapture
+                        onCapture={(file) => {
+                            setPendingContainerPhoto(file);
+                            setPendingContainerIndex(containerCameraIndex);
+                            setContainerCameraIndex(null);
+                        }}
+                        onClose={() => setContainerCameraIndex(null)}
+                        overlayText="Encuadre el código del contenedor"
+                    />
+                )
+            }
 
             {/* Container Photo Confirmation */}
-            {pendingContainerPhoto && pendingContainerIndex !== null && (
-                <PhotoConfirmModal
-                    photoSrc={pendingContainerPhoto}
-                    title={`Foto Contenedor ${pendingContainerIndex + 1}`}
-                    subtitle="Verifique que el código del contenedor sea legible."
-                    confirmLabel="Confirmar Foto"
-                    onConfirm={() => {
-                        updateContainer(pendingContainerIndex, 'photo', pendingContainerPhoto);
-                        setPendingContainerPhoto(null);
-                        setPendingContainerIndex(null);
-                    }}
-                    onRetake={() => {
-                        setPendingContainerPhoto(null);
-                        setPendingContainerIndex(null);
-                        setContainerCameraIndex(pendingContainerIndex);
-                    }}
-                />
-            )}
-        </div>
+            {
+                pendingContainerPhoto && pendingContainerIndex !== null && (
+                    <PhotoConfirmModal
+                        photoSrc={pendingContainerPhoto}
+                        title={`Foto Contenedor ${pendingContainerIndex + 1}`}
+                        subtitle="Verifique que el código del contenedor sea legible."
+                        confirmLabel="Confirmar Foto"
+                        onConfirm={() => {
+                            updateContainer(pendingContainerIndex, 'photo', pendingContainerPhoto);
+                            setPendingContainerPhoto(null);
+                            setPendingContainerIndex(null);
+                        }}
+                        onRetake={() => {
+                            setPendingContainerPhoto(null);
+                            setPendingContainerIndex(null);
+                            setContainerCameraIndex(pendingContainerIndex);
+                        }}
+                    />
+                )
+            }
+        </div >
     );
 };
 

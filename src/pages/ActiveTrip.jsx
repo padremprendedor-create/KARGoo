@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, MapPin, Truck, Camera, CheckCircle, HelpCircle, Gauge, X, Image, Plus } from 'lucide-react';
-import { GoogleMap, useJsApiLoader, Marker, DirectionsRenderer, Autocomplete } from '@react-google-maps/api';
+import { ChevronLeft, MapPin, Truck, Camera, CheckCircle, HelpCircle, Gauge, X, Image, Plus, Package } from 'lucide-react';
+import { GoogleMap, useJsApiLoader, Marker, Polyline, Autocomplete } from '@react-google-maps/api';
 import Card from '../components/ui/Card';
 import PhotoConfirmModal from '../components/PhotoConfirmModal';
 import { supabase } from '../supabaseClient';
@@ -17,7 +17,7 @@ const defaultCenter = {
     lng: -77.075
 };
 
-const libraries = ['places'];
+const libraries = ['places', 'geometry'];
 
 const ActiveTrip = () => {
     const { id } = useParams();
@@ -25,7 +25,6 @@ const ActiveTrip = () => {
     const [trip, setTrip] = useState(null);
     const [destinationCoords, setDestinationCoords] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [elapsed, setElapsed] = useState({ hrs: '00', mins: '00', secs: '00' });
     const [finishing, setFinishing] = useState(false);
     const [showFinishModal, setShowFinishModal] = useState(false);
     const [kmEnd, setKmEnd] = useState('');
@@ -38,7 +37,7 @@ const ActiveTrip = () => {
 
     // --- Google Maps Navigation & Tracking ---
     const [currentLocation, setCurrentLocation] = useState(defaultCenter);
-    const [directionsResponse, setDirectionsResponse] = useState(null);
+    const [routePolyline, setRoutePolyline] = useState(null); // Array of {lat, lng} points
     const [autocomplete, setAutocomplete] = useState(null);
 
     const { isLoaded, loadError } = useJsApiLoader({
@@ -71,24 +70,52 @@ const ActiveTrip = () => {
     const calculateRoute = useCallback(async () => {
         if (!window.google || !trip?.destination || !currentLocation || routeCalculated) return;
 
-        let dest = trip.destination;
+        // Build destination: if we have coords use them, else use the name string
+        const origin = `${currentLocation.lat},${currentLocation.lng}`;
+        let destination;
         if (destinationCoords) {
-            dest = destinationCoords;
+            destination = `${destinationCoords.lat},${destinationCoords.lng}`;
+        } else {
+            destination = trip.destination;
         }
 
-        console.log("📍 Trazando ruta hacia:", dest);
+        console.log("📍 Trazando ruta (Routes API) hacia:", destination);
 
-        const directionsService = new window.google.maps.DirectionsService();
+        const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
         try {
-            const results = await directionsService.route({
-                origin: currentLocation,
-                destination: dest,
-                travelMode: window.google.maps.TravelMode.DRIVING
-            });
-            setDirectionsResponse(results);
-            setRouteCalculated(true);
+            const res = await fetch(
+                `https://routes.googleapis.com/directions/v2:computeRoutes`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Goog-Api-Key': apiKey,
+                        'X-Goog-FieldMask': 'routes.polyline.encodedPolyline'
+                    },
+                    body: JSON.stringify({
+                        origin: { location: { latLng: { latitude: currentLocation.lat, longitude: currentLocation.lng } } },
+                        destination: destinationCoords
+                            ? { location: { latLng: { latitude: destinationCoords.lat, longitude: destinationCoords.lng } } }
+                            : { address: trip.destination },
+                        travelMode: 'DRIVE',
+                        routingPreference: 'TRAFFIC_AWARE'
+                    })
+                }
+            );
+            const data = await res.json();
+            const encoded = data?.routes?.[0]?.polyline?.encodedPolyline;
+            if (encoded) {
+                // Decode the polyline using the google maps geometry library
+                const path = window.google.maps.geometry.encoding.decodePath(encoded);
+                const points = path.map(p => ({ lat: p.lat(), lng: p.lng() }));
+                setRoutePolyline(points);
+                setRouteCalculated(true);
+                console.log("✅ Ruta trazada con", points.length, "puntos");
+            } else {
+                console.warn("⚠️ Routes API no devolvió polilínea:", data);
+            }
         } catch (error) {
-            console.error("❌ No se pudo trazar la ruta hacia el destino:", dest, error);
+            console.error("❌ Error al trazar ruta:", error);
         }
     }, [trip?.destination, destinationCoords, currentLocation, routeCalculated]);
 
@@ -103,38 +130,27 @@ const ActiveTrip = () => {
         fetchTrip();
     }, [id]);
 
-    useEffect(() => {
-        if (!trip?.start_time) return;
 
-        const updateElapsed = () => {
-            const start = new Date(trip.start_time).getTime();
-            const now = Date.now();
-            const diff = Math.max(0, now - start);
-
-            const hrs = Math.floor(diff / 3600000);
-            const mins = Math.floor((diff % 3600000) / 60000);
-            const secs = Math.floor((diff % 60000) / 1000);
-
-            setElapsed({
-                hrs: String(hrs).padStart(2, '0'),
-                mins: String(mins).padStart(2, '0'),
-                secs: String(secs).padStart(2, '0')
-            });
-        };
-
-        updateElapsed();
-        const interval = setInterval(updateElapsed, 1000);
-        return () => clearInterval(interval);
-    }, [trip?.start_time]);
 
     const fetchTrip = async () => {
         const { data } = await supabase
             .from('trips')
-            .select('*, trip_containers(*)')
+            .select('*, trip_containers(*), trip_photos(*)')
             .eq('id', id)
             .single();
 
         setTrip(data);
+
+        if (data?.trip_photos) {
+            const loadedSustento = data.trip_photos
+                .filter(p => p.photo_type === 'sustento')
+                .map(p => ({
+                    id: p.id,
+                    filePath: p.photo_url,
+                    previewUrl: null
+                }));
+            setSustentoPhotos(loadedSustento);
+        }
 
         // Fetch coordinates of destination
         if (data && data.destination) {
@@ -277,12 +293,20 @@ const ActiveTrip = () => {
         }
 
         setShowFinishModal(false);
+
+        // Compute elapsed time from start_time
+        const start = new Date(trip.start_time).getTime();
+        const diff = Math.max(0, Date.now() - start);
+        const hrs = String(Math.floor(diff / 3600000)).padStart(2, '0');
+        const mins = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+        const secs = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+
         navigate(`/driver/trip/${id}/completed`, {
             state: {
                 tripId: id,
                 origin: trip.origin,
                 destination: trip.destination,
-                elapsed: `${elapsed.hrs}:${elapsed.mins}:${elapsed.secs}`
+                elapsed: `${hrs}:${mins}:${secs}`
             }
         });
     };
@@ -372,65 +396,67 @@ const ActiveTrip = () => {
                             </h2>
                         </div>
 
-                        {/* Container */}
-                        <div className="mb-6">
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                {trip.trip_containers && trip.trip_containers.length > 0 ? (
-                                    trip.trip_containers.map((container, index) => (
-                                        <span key={index} style={{ color: 'var(--text-medium)', fontSize: '0.9rem', background: '#F3F4F6', padding: '0.25rem 0.75rem', borderRadius: '8px' }}>
-                                            Contenedor: <span style={{ color: 'var(--primary-red)', fontWeight: '700' }}>
-                                                {container.container_number}
-                                            </span>
-                                        </span>
-                                    ))
-                                ) : (
-                                    <span style={{ color: 'var(--text-medium)', fontSize: '0.9rem' }}>Sin contenedores</span>
-                                )}
-                            </div>
+                        {/* Badges: Service Type & Cargo Type */}
+                        <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+                            {trip.service_type && (
+                                <span style={{
+                                    background: '#F3F4F6', color: '#4B5563', padding: '0.4rem 1rem',
+                                    borderRadius: '10px', fontSize: '0.85rem', fontWeight: '800', textTransform: 'uppercase',
+                                    border: '1px solid #E5E7EB', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                }}>
+                                    Servicio: {trip.service_type}
+                                </span>
+                            )}
+                            {trip.cargo_type && (
+                                <span style={{
+                                    background: trip.cargo_type === 'imo' ? '#FEE2E2' : trip.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE',
+                                    color: trip.cargo_type === 'imo' ? '#DC2626' : trip.cargo_type === 'iqbf' ? '#9333EA' : '#0284C7',
+                                    border: `1px solid ${trip.cargo_type === 'imo' ? '#FECACA' : trip.cargo_type === 'iqbf' ? '#E9D5FF' : '#BAE6FD'}`,
+                                    padding: '0.4rem 1rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: '900', textTransform: 'uppercase',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                }}>
+                                    Carga: {trip.cargo_type}
+                                </span>
+                            )}
                         </div>
 
-                        {/* Timer Box */}
-                        <div style={{
-                            background: 'var(--primary-red-light)',
-                            border: '1px solid var(--border-light)',
-                            borderRadius: '12px',
-                            padding: '1rem',
-                            textAlign: 'center'
-                        }}>
-                            <div style={{
-                                color: 'var(--primary-red)',
-                                fontSize: '0.7rem',
-                                fontWeight: '700',
-                                letterSpacing: '0.1em',
-                                textTransform: 'uppercase',
-                                marginBottom: '0.25rem'
-                            }}>
-                                TIEMPO TRANSCURRIDO
+                        {/* Container Info Block */}
+                        <div className="mb-6">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                                <Package size={16} color="var(--text-light)" />
+                                <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Contenedores ({trip.trip_containers?.length || 0})
+                                </span>
                             </div>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'baseline',
-                                justifyContent: 'center',
-                                gap: '0.5rem',
-                                color: 'var(--primary-red-dark)',
-                                fontWeight: '800',
-                                fontSize: '2rem',
-                                fontVariantNumeric: 'tabular-nums'
-                            }}>
-                                <div className="flex flex-col items-center">
-                                    <span>{elapsed.hrs}</span>
-                                    <span style={{ fontSize: '0.6rem', color: '#9CA3AF', fontWeight: '600' }}>HRS</span>
-                                </div>
-                                <span style={{ color: 'var(--primary-red)', position: 'relative', top: '-10px' }}>:</span>
-                                <div className="flex flex-col items-center">
-                                    <span>{elapsed.mins}</span>
-                                    <span style={{ fontSize: '0.6rem', color: '#9CA3AF', fontWeight: '600' }}>MIN</span>
-                                </div>
-                                <span style={{ color: 'var(--primary-red)', position: 'relative', top: '-10px' }}>:</span>
-                                <div className="flex flex-col items-center">
-                                    <span>{elapsed.secs}</span>
-                                    <span style={{ fontSize: '0.6rem', color: '#9CA3AF', fontWeight: '600' }}>SEG</span>
-                                </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                {trip.trip_containers && trip.trip_containers.length > 0 ? (
+                                    trip.trip_containers.map((c, i) => (
+                                        <div key={i} style={{
+                                            background: '#F3F4F6',
+                                            border: '1px solid #E5E7EB',
+                                            padding: '0.5rem 1rem',
+                                            borderRadius: '12px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            minWidth: '120px',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
+                                        }}>
+                                            <span style={{ fontSize: '0.875rem', color: 'var(--text-dark)', fontWeight: '800', letterSpacing: '0.01em' }}>
+                                                {c.container_number}
+                                            </span>
+                                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.1rem' }}>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: '700', color: 'var(--text-medium)', opacity: 0.8 }}>
+                                                    {c.dimension}'
+                                                </span>
+                                                <span style={{ fontSize: '0.65rem', fontWeight: '700', color: 'var(--text-medium)', opacity: 0.8 }}>
+                                                    {c.condition}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <span style={{ color: 'var(--text-medium)', fontSize: '0.9rem', fontStyle: 'italic' }}>Sin contenedores</span>
+                                )}
                             </div>
                         </div>
                     </Card>
@@ -439,7 +465,7 @@ const ActiveTrip = () => {
                     <Card variant="flat" style={{
                         padding: 0,
                         borderRadius: '16px',
-                        height: '280px',
+                        height: '420px',
                         marginBottom: '1rem',
                         position: 'relative',
                         background: 'var(--info-light)',
@@ -506,12 +532,13 @@ const ActiveTrip = () => {
                                     }} />
 
                                     {/* Ruta trazada si existe destino */}
-                                    {directionsResponse && (
-                                        <DirectionsRenderer
-                                            directions={directionsResponse}
+                                    {routePolyline && (
+                                        <Polyline
+                                            path={routePolyline}
                                             options={{
-                                                suppressMarkers: true,
-                                                polylineOptions: { strokeColor: "#EF4444", strokeWeight: 5 }
+                                                strokeColor: "#EF4444",
+                                                strokeOpacity: 1,
+                                                strokeWeight: 5
                                             }}
                                         />
                                     )}
@@ -575,21 +602,28 @@ const ActiveTrip = () => {
                             )}
                         </div>
 
-                        {/* Confirmed photo badges */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: sustentoPhotos.length < 3 ? '1rem' : '0' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: sustentoPhotos.length < 3 ? '1.25rem' : '0' }}>
                             {sustentoPhotos.map((photo, idx) => (
-                                <div key={idx} style={{
+                                <div key={photo.id || idx} style={{
                                     display: 'flex', alignItems: 'center',
-                                    gap: '0.5rem', background: '#F0FDF4', padding: '0.6rem 1rem',
-                                    borderRadius: '10px', border: '1px solid #BBF7D0'
+                                    gap: '0.65rem', background: '#F0FDF4', padding: '0.75rem 1rem',
+                                    borderRadius: '12px', border: '1px solid #BBF7D0',
+                                    boxShadow: '0 1px 2px rgba(22, 163, 74, 0.05)'
                                 }}>
-                                    <CheckCircle size={16} color="#16A34A" />
-                                    <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#15803D', flex: 1 }}>
-                                        Foto de sustento {idx + 1}
+                                    <CheckCircle size={14} color="#16A34A" />
+                                    <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#15803D', flex: 1 }}>
+                                        Foto sustentada {idx + 1}
                                     </span>
                                     <button
                                         onClick={() => handleSustentoRemove(idx)}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '2px' }}
+                                        style={{
+                                            background: '#BBF7D0', border: 'none', cursor: 'pointer',
+                                            color: '#15803D', padding: '4px', borderRadius: '50%',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        onMouseOver={(e) => e.currentTarget.style.background = '#86EFAC'}
+                                        onMouseOut={(e) => e.currentTarget.style.background = '#BBF7D0'}
                                     >
                                         <X size={14} />
                                     </button>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Trash2, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Calendar, Package } from 'lucide-react';
 
 const History = () => {
     const [trips, setTrips] = useState([]);
@@ -157,30 +157,69 @@ const History = () => {
                                     {trip.origin} → {trip.destination}
                                 </div>
 
+                                {/* Badges: Service Type & Cargo Type */}
+                                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                                    {trip.service_type && (
+                                        <span style={{
+                                            background: '#F3F4F6', color: '#4B5563', padding: '0.2rem 0.6rem',
+                                            borderRadius: '6px', fontSize: '0.7rem', fontWeight: '700', textTransform: 'uppercase'
+                                        }}>
+                                            Servicio: {trip.service_type}
+                                        </span>
+                                    )}
+                                    {trip.cargo_type && (
+                                        <span style={{
+                                            background: trip.cargo_type === 'imo' ? '#FEE2E2' : trip.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE',
+                                            color: trip.cargo_type === 'imo' ? '#DC2626' : trip.cargo_type === 'iqbf' ? '#9333EA' : '#0284C7',
+                                            padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase'
+                                        }}>
+                                            Carga: {trip.cargo_type}
+                                        </span>
+                                    )}
+                                </div>
+
                                 {/* Container Info */}
                                 <div style={{
                                     display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    color: 'var(--text-medium)',
-                                    fontWeight: '600',
-                                    fontSize: '0.875rem',
+                                    flexDirection: 'column',
+                                    gap: '0.65rem',
                                     marginBottom: '1rem'
                                 }}>
-                                    <Trash2 size={16} color="var(--text-light)" />
-                                    <span>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.25rem' }}>
-                                            {trip.trip_containers && trip.trip_containers.length > 0 ? (
-                                                trip.trip_containers.map((c, i) => (
-                                                    <span key={i} style={{ fontSize: '0.75rem', color: 'var(--text-medium)', background: '#F3F4F6', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <Package size={16} color="var(--text-light)" />
+                                        <span style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                            Contenedores ({trip.trip_containers?.length || 0})
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                        {trip.trip_containers && trip.trip_containers.length > 0 ? (
+                                            trip.trip_containers.map((c, i) => (
+                                                <div key={i} style={{
+                                                    background: '#FFF7ED',
+                                                    border: '1px solid #FFEDD5',
+                                                    padding: '0.4rem 0.75rem',
+                                                    borderRadius: '10px',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    minWidth: '100px'
+                                                }}>
+                                                    <span style={{ fontSize: '0.85rem', color: '#9A3412', fontWeight: '800', letterSpacing: '0.02em' }}>
                                                         {c.container_number}
                                                     </span>
-                                                ))
-                                            ) : (
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>N/A</span>
-                                            )}
-                                        </div>
-                                    </span>
+                                                    <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.1rem' }}>
+                                                        <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#EA580C', opacity: 0.8 }}>
+                                                            {c.dimension}'
+                                                        </span>
+                                                        <span style={{ fontSize: '0.6rem', fontWeight: '700', color: '#EA580C', opacity: 0.8 }}>
+                                                            {c.condition}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-light)', fontStyle: 'italic' }}>Sin datos de contenedor</span>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Distance */}

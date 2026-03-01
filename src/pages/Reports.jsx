@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Clock, Gauge, Star, TrendingUp } from 'lucide-react';
+import { ChevronLeft, Gauge, Star, TrendingUp } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 const MONTH_NAMES = [
@@ -12,6 +12,7 @@ const Reports = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [trips, setTrips] = useState([]);
+    const [activities, setActivities] = useState([]);
     const [currentMonth] = useState(new Date().getMonth());
     const [currentYear] = useState(new Date().getFullYear());
 
@@ -28,7 +29,7 @@ const Reports = () => {
 
         const { data } = await supabase
             .from('trips')
-            .select('*')
+            .select('*, trip_containers(*)')
             .eq('driver_id', user.id)
             .in('status', ['completed', 'approved'])
             .gte('end_time', startOfMonth)
@@ -36,6 +37,17 @@ const Reports = () => {
             .order('end_time', { ascending: true });
 
         setTrips(data || []);
+
+        // Fetch driver_activities for dead time calculation
+        const { data: actData } = await supabase
+            .from('driver_activities')
+            .select('start_time, end_time, type')
+            .eq('driver_id', user.id)
+            .in('type', ['mantenimiento', 'inactivo'])
+            .gte('start_time', startOfMonth)
+            .lte('start_time', endOfMonth);
+        setActivities(actData || []);
+
         setLoading(false);
     };
 
@@ -58,26 +70,32 @@ const Reports = () => {
     });
     const maxWeekTrips = Math.max(...weeksData, 1);
 
-    // Route distribution
-    const routeCounts = {};
+    // Cargo type distribution (from trip.cargo_type or first container's cargo_type)
+    const cargoColors = { general: '#2563EB', imo: '#DC2626', iqbf: '#7C3AED' };
+    const cargoLabels = { general: 'General', imo: 'IMO', iqbf: 'IQBF' };
+    const cargoCounts = { general: 0, imo: 0, iqbf: 0 };
     trips.forEach(t => {
-        const route = `${t.origin} → ${t.destination}`;
-        routeCounts[route] = (routeCounts[route] || 0) + 1;
+        const ct = t.cargo_type || (t.trip_containers?.[0]?.cargo_type) || 'general';
+        if (cargoCounts[ct] !== undefined) cargoCounts[ct]++;
+        else cargoCounts['general']++;
     });
-    const routeEntries = Object.entries(routeCounts).sort((a, b) => b[1] - a[1]);
-    const topRoute = routeEntries[0];
-    const topRoutePercent = totalTrips > 0 && topRoute ? Math.round((topRoute[1] / totalTrips) * 100) : 0;
-    const otherPercent = 100 - topRoutePercent;
+    const cargoEntries = Object.entries(cargoCounts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
 
-    // Average travel time
-    const tripsWithTime = trips.filter(t => t.start_time && t.end_time);
-    const avgTimeMs = tripsWithTime.length > 0
-        ? tripsWithTime.reduce((sum, t) => sum + (new Date(t.end_time) - new Date(t.start_time)), 0) / tripsWithTime.length
-        : 0;
-    const avgHours = Math.floor(avgTimeMs / 3600000);
-    const avgMins = Math.floor((avgTimeMs % 3600000) / 60000);
+    // Donut gradient for cargo types
+    let donutGradient = 'conic-gradient(#E5E7EB 0deg 360deg)';
+    if (totalTrips > 0 && cargoEntries.length > 0) {
+        let segments = [];
+        let cumDeg = 0;
+        cargoEntries.forEach(([key, count]) => {
+            const deg = (count / totalTrips) * 360;
+            segments.push(`${cargoColors[key] || '#9CA3AF'} ${cumDeg}deg ${cumDeg + deg}deg`);
+            cumDeg += deg;
+        });
+        donutGradient = `conic-gradient(${segments.join(', ')})`;
+    }
 
     // Average speed
+    const tripsWithTime = trips.filter(t => t.start_time && t.end_time);
     const tripsWithKmAndTime = trips.filter(t => t.km_start != null && t.km_end != null && t.start_time && t.end_time);
     const avgSpeed = tripsWithKmAndTime.length > 0
         ? tripsWithKmAndTime.reduce((sum, t) => {
@@ -87,10 +105,19 @@ const Reports = () => {
         }, 0) / tripsWithKmAndTime.length
         : 0;
 
-    // Donut gradient
-    const donutGradient = totalTrips > 0
-        ? `conic-gradient(var(--primary-red) 0deg ${topRoutePercent * 3.6}deg, #E5E7EB ${topRoutePercent * 3.6}deg 360deg)`
-        : 'conic-gradient(#E5E7EB 0deg 360deg)';
+    // Dead time & monthly rating
+    const totalDeadTimeMs = activities.reduce((sum, a) => {
+        const start = new Date(a.start_time).getTime();
+        const end = a.end_time ? new Date(a.end_time).getTime() : Date.now();
+        return sum + Math.max(0, end - start);
+    }, 0);
+    const totalTripTimeMs = tripsWithTime.reduce((sum, t) => {
+        return sum + (new Date(t.end_time) - new Date(t.start_time));
+    }, 0);
+    const totalActiveTimeMs = totalTripTimeMs + totalDeadTimeMs;
+    const deadTimePercent = totalActiveTimeMs > 0 ? (totalDeadTimeMs / totalActiveTimeMs) * 100 : 0;
+    // 0% dead time = 5 stars, 10% = 4.5 stars, linear
+    const monthlyRating = Math.max(0, Math.min(5, 5 - (deadTimePercent / 10) * 0.5));
 
     if (loading) {
         return (
@@ -203,7 +230,7 @@ const Reports = () => {
                     </div>
                 </div>
 
-                {/* === Route Distribution === */}
+                {/* === Cargo Type Distribution === */}
                 <div style={{
                     background: 'var(--bg-card)',
                     borderRadius: '20px',
@@ -212,7 +239,7 @@ const Reports = () => {
                     marginBottom: '1rem'
                 }}>
                     <h3 style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark)', margin: '0 0 1.25rem' }}>
-                        Distribución de Rutas
+                        Distribución de Tipos de Carga
                     </h3>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
                         {/* Donut */}
@@ -234,29 +261,30 @@ const Reports = () => {
                                 justifyContent: 'center',
                                 flexDirection: 'column'
                             }}>
-                                <span style={{ fontSize: '0.6rem', color: 'var(--text-light)', fontWeight: '600' }}>
-                                    {topRoute ? topRoute[0].split('→')[0].trim().slice(0, 6) : '—'}
+                                <span style={{ fontSize: '1.25rem', fontWeight: '900', color: 'var(--text-dark)' }}>
+                                    {totalTrips}
+                                </span>
+                                <span style={{ fontSize: '0.55rem', color: 'var(--text-light)', fontWeight: '600' }}>
+                                    viajes
                                 </span>
                             </div>
                         </div>
 
                         {/* Legend */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {topRoute && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: 'var(--primary-red)' }} />
-                                    <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-medium)' }}>
-                                        {topRoute[0]} ({topRoutePercent}%)
-                                    </span>
-                                </div>
-                            )}
-                            {otherPercent > 0 && routeEntries.length > 1 && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: 'var(--bg-light)' }} />
-                                    <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-medium)' }}>
-                                        Otras Rutas ({otherPercent}%)
-                                    </span>
-                                </div>
+                            {cargoEntries.map(([key, count]) => {
+                                const pct = totalTrips > 0 ? Math.round((count / totalTrips) * 100) : 0;
+                                return (
+                                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: cargoColors[key] || '#9CA3AF' }} />
+                                        <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-medium)' }}>
+                                            {cargoLabels[key] || key} — {count} ({pct}%)
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                            {cargoEntries.length === 0 && (
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Sin datos</span>
                             )}
                         </div>
                     </div>
@@ -274,24 +302,6 @@ const Reports = () => {
                         Estadísticas Rápidas
                     </h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {/* Avg Travel Time */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                                <div style={{
-                                    width: '36px', height: '36px',
-                                    borderRadius: '10px',
-                                    background: 'var(--bg-light)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                }}>
-                                    <Clock size={18} color="var(--text-light)" />
-                                </div>
-                                <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-medium)' }}>Tiempo prom. viaje</span>
-                            </div>
-                            <span style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark)' }}>
-                                {avgHours > 0 ? `${avgHours}h ` : ''}{avgMins}m
-                            </span>
-                        </div>
-
                         {/* Avg Speed */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -310,7 +320,7 @@ const Reports = () => {
                             </span>
                         </div>
 
-                        {/* Rating placeholder */}
+                        {/* Monthly rating based on dead time */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                                 <div style={{
@@ -324,7 +334,7 @@ const Reports = () => {
                                 <span style={{ fontSize: '0.9rem', fontWeight: '600', color: 'var(--text-medium)' }}>Calificación mes</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                <span style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark)' }}>4.9</span>
+                                <span style={{ fontSize: '1rem', fontWeight: '800', color: 'var(--text-dark)' }}>{monthlyRating.toFixed(1)}</span>
                                 <Star size={16} color="var(--primary-red)" fill="var(--primary-red)" />
                             </div>
                         </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Moon, Bell, Scale, Info, LogOut } from 'lucide-react';
+import { ChevronLeft, Moon, Info, LogOut } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useTheme } from '../context/ThemeContext';
 
@@ -36,8 +36,7 @@ const Toggle = ({ value, onChange }) => (
 const Settings = () => {
     const navigate = useNavigate();
     const { darkMode, setDarkMode } = useTheme();
-    const [tripAlerts, setTripAlerts] = useState(true);
-    const [weighingReminders, setWeighingReminders] = useState(true);
+
 
     const d = darkMode; // shorthand
 
@@ -131,21 +130,7 @@ const Settings = () => {
                 />
             </div>
 
-            {/* Notifications */}
-            <SectionTitle>Notificaciones</SectionTitle>
-            <div style={{ background: cardBg, borderRadius: '16px', margin: '0 1rem', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
-                <SettingRow
-                    icon={Bell}
-                    label="Alertas de Viaje"
-                    right={<Toggle value={tripAlerts} onChange={setTripAlerts} />}
-                />
-                <SettingRow
-                    icon={Scale}
-                    label="Recordatorios de Pesaje"
-                    borderBottom={false}
-                    right={<Toggle value={weighingReminders} onChange={setWeighingReminders} />}
-                />
-            </div>
+
 
             {/* About */}
             <SectionTitle>Acerca de</SectionTitle>

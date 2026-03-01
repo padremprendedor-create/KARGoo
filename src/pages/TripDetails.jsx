@@ -468,6 +468,29 @@ const TripDetails = () => {
                         </div>
                     </div>
 
+                    {/* Trip-level Cargo Type */}
+                    {trip.cargo_type && (
+                        <div style={{ marginBottom: '1rem' }}>
+                            <div style={{
+                                fontSize: '0.65rem', fontWeight: '800',
+                                color: 'var(--text-medium)',
+                                letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '0.35rem',
+                                display: 'flex', alignItems: 'center', gap: '0.375rem'
+                            }}>
+                                <Package size={14} color="var(--primary-red)" /> Tipo de Carga
+                            </div>
+                            <span style={{
+                                display: 'inline-block',
+                                fontSize: '0.8rem', fontWeight: '800',
+                                color: trip.cargo_type === 'imo' ? '#DC2626' : trip.cargo_type === 'iqbf' ? '#7C3AED' : '#0369A1',
+                                background: trip.cargo_type === 'imo' ? '#FEE2E2' : trip.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE',
+                                padding: '0.4rem 1rem', borderRadius: '8px', textTransform: 'uppercase'
+                            }}>
+                                {trip.cargo_type === 'general' ? 'Carga General' : trip.cargo_type.toUpperCase()}
+                            </span>
+                        </div>
+                    )}
+
                     {/* Containers List */}
                     {trip.trip_containers && trip.trip_containers.length > 0 && (
                         <div style={{ marginBottom: '1rem' }}>
@@ -508,11 +531,7 @@ const TripDetails = () => {
                                                         {container.condition}
                                                     </span>
                                                 )}
-                                                {container.cargo_type && (
-                                                    <span style={{ fontSize: '0.65rem', fontWeight: '700', color: container.cargo_type === 'imo' ? '#DC2626' : container.cargo_type === 'iqbf' ? '#7C3AED' : '#0369A1', background: container.cargo_type === 'imo' ? '#FEE2E2' : container.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE', padding: '0.15rem 0.4rem', borderRadius: '4px', textTransform: 'uppercase' }}>
-                                                        {container.cargo_type === 'general' ? 'Carga General' : container.cargo_type.toUpperCase()}
-                                                    </span>
-                                                )}
+
                                             </div>
                                         </div>
                                     </div>
