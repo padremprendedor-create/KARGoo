@@ -128,8 +128,8 @@ const AdminTrips = () => {
                         </div>
 
                         <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
+                            value={clientFilter}
+                            onChange={(e) => setClientFilter(e.target.value)}
                             style={{
                                 padding: '0.75rem 2rem 0.75rem 1rem',
                                 borderRadius: '12px',
@@ -142,33 +142,10 @@ const AdminTrips = () => {
                                 minWidth: '160px'
                             }}
                         >
-                            <option value="all">Todos los estados</option>
-                            <option value="pending">Pendiente</option>
-                            <option value="in_progress">En Curso</option>
-                            <option value="completed">Completado</option>
-                            <option value="approved">Aprobado</option>
-                            <option value="rejected">Rechazado</option>
-                        </select>
-
-                        <select
-                            value={serviceFilter}
-                            onChange={(e) => setServiceFilter(e.target.value)}
-                            style={{
-                                padding: '0.75rem 2rem 0.75rem 1rem',
-                                borderRadius: '12px',
-                                border: '1px solid #E5E7EB',
-                                fontSize: '0.95rem',
-                                backgroundColor: 'white',
-                                cursor: 'pointer',
-                                color: 'var(--text-dark)',
-                                outline: 'none',
-                                minWidth: '160px'
-                            }}
-                        >
-                            <option value="all">Todos los servicios</option>
-                            <option value="embarque">Embarque</option>
-                            <option value="descarga">Descarga</option>
-                            <option value="traslado">Traslado</option>
+                            <option value="all">Todos los Clientes</option>
+                            {uniqueClients.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                            ))}
                         </select>
 
                         <select
@@ -193,8 +170,8 @@ const AdminTrips = () => {
                         </select>
 
                         <select
-                            value={clientFilter}
-                            onChange={(e) => setClientFilter(e.target.value)}
+                            value={serviceFilter}
+                            onChange={(e) => setServiceFilter(e.target.value)}
                             style={{
                                 padding: '0.75rem 2rem 0.75rem 1rem',
                                 borderRadius: '12px',
@@ -207,10 +184,33 @@ const AdminTrips = () => {
                                 minWidth: '160px'
                             }}
                         >
-                            <option value="all">Todos los Clientes</option>
-                            {uniqueClients.map(c => (
-                                <option key={c} value={c}>{c}</option>
-                            ))}
+                            <option value="all">Todos los servicios</option>
+                            <option value="embarque">Embarque</option>
+                            <option value="descarga">Descarga</option>
+                            <option value="traslado">Traslado</option>
+                        </select>
+
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            style={{
+                                padding: '0.75rem 2rem 0.75rem 1rem',
+                                borderRadius: '12px',
+                                border: '1px solid #E5E7EB',
+                                fontSize: '0.95rem',
+                                backgroundColor: 'white',
+                                cursor: 'pointer',
+                                color: 'var(--text-dark)',
+                                outline: 'none',
+                                minWidth: '160px'
+                            }}
+                        >
+                            <option value="all">Todos los estados</option>
+                            <option value="pending">Pendiente</option>
+                            <option value="in_progress">En Curso</option>
+                            <option value="completed">Completado</option>
+                            <option value="approved">Aprobado</option>
+                            <option value="rejected">Rechazado</option>
                         </select>
                     </div>
                 </div>

@@ -155,6 +155,7 @@ const AdminDashboard = () => {
                                 <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontWeight: '600', color: 'var(--text-light)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fecha</th>
                                 <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontWeight: '600', color: 'var(--text-light)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Placa</th>
                                 <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontWeight: '600', color: 'var(--text-light)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Conductor</th>
+                                <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontWeight: '600', color: 'var(--text-light)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tipo de Carga</th>
                                 <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontWeight: '600', color: 'var(--text-light)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ruta</th>
                                 <th style={{ padding: '1rem 1.5rem', textAlign: 'left', fontWeight: '600', color: 'var(--text-light)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Estado</th>
                                 <th style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: '600', color: 'var(--text-light)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Acciones</th>
@@ -174,6 +175,20 @@ const AdminDashboard = () => {
                                                 </div>
                                                 {trip.profiles?.full_name || 'Desconocido'}
                                             </div>
+                                        </td>
+                                        <td style={{ padding: '1rem 1.5rem' }}>
+                                            <span style={{
+                                                padding: '0.2rem 0.6rem',
+                                                borderRadius: '6px',
+                                                fontSize: '0.65rem',
+                                                fontWeight: '800',
+                                                color: trip.cargo_type === 'imo' ? '#DC2626' : trip.cargo_type === 'iqbf' ? '#9333EA' : '#0284C7',
+                                                background: trip.cargo_type === 'imo' ? '#FEE2E2' : trip.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE',
+                                                border: `1px solid ${trip.cargo_type === 'imo' ? '#FECACA' : trip.cargo_type === 'iqbf' ? '#E9D5FF' : '#BAE6FD'}`,
+                                                textTransform: 'uppercase'
+                                            }}>
+                                                {trip.cargo_type === 'general' || !trip.cargo_type ? 'Carga General' : `Carga ${trip.cargo_type}`}
+                                            </span>
                                         </td>
                                         <td style={{ padding: '1rem 1.5rem', color: 'var(--text-medium)' }}>{trip.origin} → {trip.destination}</td>
                                         <td style={{ padding: '1rem 1.5rem' }}>
@@ -209,7 +224,7 @@ const AdminDashboard = () => {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan="7" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-light)' }}>
+                                    <td colSpan="8" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-light)' }}>
                                         No hay viajes registrados aún.
                                     </td>
                                 </tr>
