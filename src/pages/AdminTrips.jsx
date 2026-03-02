@@ -15,6 +15,9 @@ const AdminTrips = () => {
     const [selectedTripId, setSelectedTripId] = useState(null);
     const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
     const [statusFilter, setStatusFilter] = useState('all');
+    const [cargoFilter, setCargoFilter] = useState('all');
+    const [serviceFilter, setServiceFilter] = useState('all');
+    const [clientFilter, setClientFilter] = useState('all');
 
     const handleViewDetails = (tripId) => {
         setSelectedTripId(tripId);
@@ -25,7 +28,7 @@ const AdminTrips = () => {
         setLoading(true);
         const { data, error } = await supabase
             .from('trips')
-            .select('*, profiles(full_name)')
+            .select('*, profiles(full_name), clients(name)')
             .order('created_at', { ascending: false });
 
         if (error) console.error('Error fetching trips:', error);
@@ -69,6 +72,8 @@ const AdminTrips = () => {
         }
     };
 
+    const uniqueClients = [...new Set(trips.map(t => t.clients?.name).filter(Boolean))].sort();
+
     const filteredTrips = trips.filter(t => {
         const matchesSearch = t.id.toString().includes(searchTerm) ||
             t.vehicle_plate?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -80,7 +85,11 @@ const AdminTrips = () => {
 
         const matchesStatus = statusFilter === 'all' || safeStatus === statusFilter;
 
-        return matchesSearch && matchesStatus;
+        const matchesCargo = cargoFilter === 'all' || (t.cargo_type || 'general') === cargoFilter;
+        const matchesService = serviceFilter === 'all' || t.service_type === serviceFilter;
+        const matchesClient = clientFilter === 'all' || (t.clients?.name === clientFilter);
+
+        return matchesSearch && matchesStatus && matchesCargo && matchesService && matchesClient;
     });
 
     return (
@@ -98,47 +107,112 @@ const AdminTrips = () => {
                 </header>
 
                 {/* Search and Filter */}
-                <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
-                    <div style={{ position: 'relative', maxWidth: '400px', width: '100%' }}>
-                        <Search style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-light)' }} size={20} />
-                        <input
-                            type="text"
-                            placeholder="Buscar por ID, placa o conductor..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                <div style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ position: 'relative', flex: '1 1 300px' }}>
+                            <Search style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-light)' }} size={20} />
+                            <input
+                                type="text"
+                                placeholder="Buscar por ID, placa o conductor..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.75rem 0.75rem 0.75rem 3rem',
+                                    borderRadius: '12px',
+                                    border: '1px solid #E5E7EB',
+                                    outline: 'none',
+                                    fontSize: '0.95rem'
+                                }}
+                            />
+                        </div>
+
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
                             style={{
-                                width: '100%',
-                                padding: '0.75rem 0.75rem 0.75rem 3rem',
+                                padding: '0.75rem 2rem 0.75rem 1rem',
                                 borderRadius: '12px',
                                 border: '1px solid #E5E7EB',
+                                fontSize: '0.95rem',
+                                backgroundColor: 'white',
+                                cursor: 'pointer',
+                                color: 'var(--text-dark)',
                                 outline: 'none',
-                                fontSize: '0.95rem'
+                                minWidth: '160px'
                             }}
-                        />
-                    </div>
+                        >
+                            <option value="all">Todos los estados</option>
+                            <option value="pending">Pendiente</option>
+                            <option value="in_progress">En Curso</option>
+                            <option value="completed">Completado</option>
+                            <option value="approved">Aprobado</option>
+                            <option value="rejected">Rechazado</option>
+                        </select>
 
-                    <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        style={{
-                            padding: '0.75rem 2rem 0.75rem 1rem',
-                            borderRadius: '12px',
-                            border: '1px solid #E5E7EB',
-                            fontSize: '0.95rem',
-                            backgroundColor: 'white',
-                            cursor: 'pointer',
-                            color: 'var(--text-dark)',
-                            outline: 'none',
-                            minWidth: '200px'
-                        }}
-                    >
-                        <option value="all">Todos los estados</option>
-                        <option value="pending">Pendiente</option>
-                        <option value="in_progress">En Curso</option>
-                        <option value="completed">Completado</option>
-                        <option value="approved">Aprobado</option>
-                        <option value="rejected">Rechazado</option>
-                    </select>
+                        <select
+                            value={serviceFilter}
+                            onChange={(e) => setServiceFilter(e.target.value)}
+                            style={{
+                                padding: '0.75rem 2rem 0.75rem 1rem',
+                                borderRadius: '12px',
+                                border: '1px solid #E5E7EB',
+                                fontSize: '0.95rem',
+                                backgroundColor: 'white',
+                                cursor: 'pointer',
+                                color: 'var(--text-dark)',
+                                outline: 'none',
+                                minWidth: '160px'
+                            }}
+                        >
+                            <option value="all">Todos los servicios</option>
+                            <option value="embarque">Embarque</option>
+                            <option value="descarga">Descarga</option>
+                            <option value="traslado">Traslado</option>
+                        </select>
+
+                        <select
+                            value={cargoFilter}
+                            onChange={(e) => setCargoFilter(e.target.value)}
+                            style={{
+                                padding: '0.75rem 2rem 0.75rem 1rem',
+                                borderRadius: '12px',
+                                border: '1px solid #E5E7EB',
+                                fontSize: '0.95rem',
+                                backgroundColor: 'white',
+                                cursor: 'pointer',
+                                color: 'var(--text-dark)',
+                                outline: 'none',
+                                minWidth: '160px'
+                            }}
+                        >
+                            <option value="all">Tipos de Carga</option>
+                            <option value="general">Carga General</option>
+                            <option value="imo">Carga IMO</option>
+                            <option value="iqbf">Carga IQBF</option>
+                        </select>
+
+                        <select
+                            value={clientFilter}
+                            onChange={(e) => setClientFilter(e.target.value)}
+                            style={{
+                                padding: '0.75rem 2rem 0.75rem 1rem',
+                                borderRadius: '12px',
+                                border: '1px solid #E5E7EB',
+                                fontSize: '0.95rem',
+                                backgroundColor: 'white',
+                                cursor: 'pointer',
+                                color: 'var(--text-dark)',
+                                outline: 'none',
+                                minWidth: '160px'
+                            }}
+                        >
+                            <option value="all">Todos los Clientes</option>
+                            {uniqueClients.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
 
                 {/* List */}
@@ -173,10 +247,56 @@ const AdminTrips = () => {
                                                 <User size={14} /> {trip.profiles?.full_name || 'Sin conductor'}
                                             </div>
                                         </div>
+
+                                        {/* Badges */}
+                                        <div className="flex items-center gap-2 mt-3 flex-wrap">
+                                            {trip.service_type && (
+                                                <span style={{
+                                                    padding: '0.2rem 0.6rem',
+                                                    borderRadius: '6px',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: '600',
+                                                    background: '#F3F4F6',
+                                                    color: '#4B5563',
+                                                    border: '1px solid #E5E7EB',
+                                                    textTransform: 'uppercase'
+                                                }}>
+                                                    {trip.service_type}
+                                                </span>
+                                            )}
+                                            {trip.cargo_type && (
+                                                <span style={{
+                                                    padding: '0.2rem 0.6rem',
+                                                    borderRadius: '6px',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: '700',
+                                                    color: trip.cargo_type === 'imo' ? '#DC2626' : trip.cargo_type === 'iqbf' ? '#9333EA' : '#0284C7',
+                                                    background: trip.cargo_type === 'imo' ? '#FEE2E2' : trip.cargo_type === 'iqbf' ? '#F3E8FF' : '#E0F2FE',
+                                                    border: `1px solid ${trip.cargo_type === 'imo' ? '#FECACA' : trip.cargo_type === 'iqbf' ? '#E9D5FF' : '#BAE6FD'}`,
+                                                    textTransform: 'uppercase'
+                                                }}>
+                                                    {trip.cargo_type === 'general' ? 'Carga General' : `Carga ${trip.cargo_type}`}
+                                                </span>
+                                            )}
+                                            {trip.clients?.name && (
+                                                <span style={{
+                                                    padding: '0.2rem 0.6rem',
+                                                    borderRadius: '6px',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: '600',
+                                                    background: '#ECFDF5',
+                                                    color: '#059669',
+                                                    border: '1px solid #A7F3D0',
+                                                    textTransform: 'uppercase'
+                                                }}>
+                                                    {trip.clients.name}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div>
+                                <div className="flex flex-col items-end gap-3">
                                     <span style={{
                                         background: style.bg,
                                         color: style.text,
