@@ -64,6 +64,16 @@ const ConfirmWeighing = () => {
             sessionStorage.setItem(`weighing_done_${id}`, 'true');
             sessionStorage.removeItem('weighing_photo');
 
+            // Log interaction
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                await supabase.from('driver_interactions').insert({
+                    driver_id: user.id,
+                    interaction_type: 'photo',
+                    description: 'Registró pesaje de balanza'
+                });
+            }
+
             alert('Ticket registrado correctamente');
             navigate(`/driver/trip/${id}`);
         } catch (err) {

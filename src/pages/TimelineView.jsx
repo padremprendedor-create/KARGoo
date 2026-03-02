@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import AdminLayout from '../layouts/AdminLayout';
 import { supabase } from '../supabaseClient';
 
@@ -222,14 +222,24 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
 
     const isMaint = activity.type === 'mantenimiento';
 
+    // Calculate duration
+    let durationStr = '';
+    if (activity.rawStart && activity.rawEnd) {
+        const diffMs = activity.rawEnd.getTime() - activity.rawStart.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const hrs = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        durationStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+    }
+
     return (
         <div
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
             title={
                 isMaint
-                    ? `Mantenimiento: ${activity.reason || 'Sin motivo'} | ${activity.start} - ${activity.end}`
-                    : `${activity.type === 'viaje' ? 'En Viaje' : 'Inactivo'}: ${activity.start} - ${activity.end}`
+                    ? `Mantenimiento: ${activity.reason || 'Sin motivo'} | ${activity.start} - ${activity.end} (${durationStr})`
+                    : `${activity.type === 'viaje' ? 'En Viaje' : 'Inactivo'}: ${activity.start} - ${activity.end} (${durationStr})`
             }
             style={{
                 position: 'absolute',
@@ -246,6 +256,94 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
             }}
         >
             {isMaint && hover && <MaintenancePopup activity={activity} />}
+
+            {/* Explicit duration text */}
+            {widthPct >= 5 && durationStr && (
+                <div style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    color: activity.type === 'inactivo' ? '#6B7280' : '#fff',
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    letterSpacing: '0.02em',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
+                    textShadow: activity.type === 'inactivo' ? 'none' : '0 1px 3px rgba(0,0,0,0.5)',
+                    opacity: 0.95
+                }}>
+                    {durationStr}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const InteractionMark = ({ interaction, shiftConfig }) => {
+    const [hover, setHover] = useState(false);
+    const localTime = timestampToLocal(interaction.timestamp);
+    const timeDec = clamp(timeToDecimal(localTime, shiftConfig.isAfternoon), shiftConfig.startHour, shiftConfig.endHour);
+    const leftPct = pct(timeDec, shiftConfig.startHour, shiftConfig.rangeHours);
+
+    if (leftPct < 0 || leftPct > 100) return null;
+
+    return (
+        <div
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            style={{
+                position: 'absolute',
+                left: `${leftPct}%`,
+                top: 0,
+                width: '3px',
+                height: '100%',
+                background: '#EF4444',
+                zIndex: 6,
+                transform: 'translateX(-50%)',
+                cursor: 'pointer'
+            }}
+        >
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '-4px', width: '11px' }} />
+
+            {hover && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        bottom: 'calc(100% + 6px)',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: '#1F2937',
+                        color: '#fff',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '6px',
+                        fontSize: '0.75rem',
+                        whiteSpace: 'nowrap',
+                        zIndex: 50,
+                        pointerEvents: 'none',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.2rem'
+                    }}
+                >
+                    <div style={{ fontWeight: 600, color: '#FCA5A5' }}>{interaction.description}</div>
+                    <div style={{ color: '#9CA3AF', fontSize: '0.65rem' }}>{localTime}</div>
+                    <div
+                        style={{
+                            position: 'absolute',
+                            bottom: '-5px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: 0,
+                            height: 0,
+                            borderLeft: '6px solid transparent',
+                            borderRight: '6px solid transparent',
+                            borderTop: '6px solid #1F2937',
+                        }}
+                    />
+                </div>
+            )}
         </div>
     );
 };
@@ -296,18 +394,25 @@ const ShiftMarker = ({ label, timeDec, isOvertime, shiftConfig, isStaggered }) =
     );
 };
 
-const DriverRow = ({ driver, segments, shiftConfig }) => {
-    const getShiftBounds = (segs) => {
-        if (segs.length === 0) return null;
-        const starts = segs.map((s) => timeToDecimal(s.start, shiftConfig.isAfternoon));
-        const ends = segs.map((s) => timeToDecimal(s.end, shiftConfig.isAfternoon));
+const DriverRow = ({ driver, segments, interactions, shiftConfig }) => {
+    const getShiftBounds = (segs, ints) => {
+        if (segs.length === 0 && (!ints || ints.length === 0)) return null;
+        let starts = segs.map((s) => timeToDecimal(s.start, shiftConfig.isAfternoon));
+        let ends = segs.map((s) => timeToDecimal(s.end, shiftConfig.isAfternoon));
+
+        if (ints && ints.length > 0) {
+            const intTimes = ints.map(i => timeToDecimal(timestampToLocal(i.timestamp), shiftConfig.isAfternoon));
+            starts = starts.concat(intTimes);
+            ends = ends.concat(intTimes);
+        }
+
         return {
             shiftStartDec: Math.min(...starts),
             shiftEndDec: Math.max(...ends),
         };
     };
 
-    const bounds = getShiftBounds(segments);
+    const bounds = getShiftBounds(segments, interactions);
     const HOURS = getHoursArray(shiftConfig.startHour, shiftConfig.rangeHours);
 
     if (!bounds) {
@@ -402,6 +507,10 @@ const DriverRow = ({ driver, segments, shiftConfig }) => {
                     >
                         {segments.map((act, i) => (
                             <ActivityBlock key={i} activity={act} shiftConfig={shiftConfig} />
+                        ))}
+
+                        {(interactions || []).map((int, i) => (
+                            <InteractionMark key={`int-${i}`} interaction={int} shiftConfig={shiftConfig} />
                         ))}
 
                         {/* Blue line at shift start */}
@@ -500,9 +609,22 @@ const TimelineView = () => {
     const [drivers, setDrivers] = useState([]);
     const [tripsMap, setTripsMap] = useState({});
     const [activitiesMap, setActivitiesMap] = useState({});
+    const [interactionsMap, setInteractionsMap] = useState({});
     const [loading, setLoading] = useState(true);
 
     const shiftConfig = getShiftConfig(selectedShift);
+
+    const handlePrevDay = () => {
+        const d = new Date(selectedDate + 'T12:00:00');
+        d.setDate(d.getDate() - 1);
+        setSelectedDate(d.toISOString().split('T')[0]);
+    };
+
+    const handleNextDay = () => {
+        const d = new Date(selectedDate + 'T12:00:00');
+        d.setDate(d.getDate() + 1);
+        setSelectedDate(d.toISOString().split('T')[0]);
+    };
 
     const getDateRange = useCallback(() => {
         // Lima is UTC-5.  Build ISO strings explicitly.
@@ -563,6 +685,19 @@ const TimelineView = () => {
         });
         setActivitiesMap(aMap);
 
+        const { data: interactionData } = await supabase
+            .from('driver_interactions')
+            .select('id, driver_id, interaction_type, description, timestamp')
+            .gte('timestamp', dayStart)
+            .lt('timestamp', dayEnd);
+
+        const iMap = {};
+        (interactionData || []).forEach((i) => {
+            if (!iMap[i.driver_id]) iMap[i.driver_id] = [];
+            iMap[i.driver_id].push(i);
+        });
+        setInteractionsMap(iMap);
+
         setLoading(false);
     }, [getDateRange]);
 
@@ -575,6 +710,7 @@ const TimelineView = () => {
             .channel('timeline-realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => fetchData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_activities' }, () => fetchData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_interactions' }, () => fetchData())
             .subscribe();
 
         return () => supabase.removeChannel(channel);
@@ -611,12 +747,32 @@ const TimelineView = () => {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-dark)', whiteSpace: 'nowrap' }}>Fecha:</label>
-                        <input
-                            type="date"
-                            value={selectedDate}
-                            onChange={(e) => setSelectedDate(e.target.value)}
-                            style={{ padding: '0.55rem 0.85rem', borderRadius: '10px', border: '1px solid #E5E7EB', background: 'white', fontSize: '0.85rem', cursor: 'pointer', outline: 'none', color: 'var(--text-dark)', fontWeight: 500 }}
-                        />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            <button
+                                onClick={handlePrevDay}
+                                style={{ padding: '0.45rem', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dark)', transition: 'background 0.2s' }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#F3F4F6'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                title="Día Anterior"
+                            >
+                                <ChevronLeft size={20} />
+                            </button>
+                            <input
+                                type="date"
+                                value={selectedDate}
+                                onChange={(e) => setSelectedDate(e.target.value)}
+                                style={{ padding: '0.55rem 0.85rem', borderRadius: '10px', border: '1px solid #E5E7EB', background: 'white', fontSize: '0.85rem', cursor: 'pointer', outline: 'none', color: 'var(--text-dark)', fontWeight: 500 }}
+                            />
+                            <button
+                                onClick={handleNextDay}
+                                style={{ padding: '0.45rem', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-dark)', transition: 'background 0.2s' }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#F3F4F6'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                title="Día Siguiente"
+                            >
+                                <ChevronRight size={20} />
+                            </button>
+                        </div>
                     </div>
 
                     <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -639,8 +795,9 @@ const TimelineView = () => {
                                 return drivers.map((driver) => {
                                     const driverTrips = tripsMap[driver.id] || [];
                                     const driverActs = activitiesMap[driver.id] || [];
+                                    const driverInts = interactionsMap[driver.id] || [];
                                     const segments = buildDriverTimeline(driverTrips, driverActs, shiftConfig, dayStart, dayEnd);
-                                    return <DriverRow key={driver.id} driver={driver} segments={segments} shiftConfig={shiftConfig} />;
+                                    return <DriverRow key={driver.id} driver={driver} segments={segments} interactions={driverInts} shiftConfig={shiftConfig} />;
                                 });
                             })()}
                         </div>

@@ -236,6 +236,16 @@ const ActiveTrip = () => {
                 filePath,
                 previewUrl: pendingSustentoPhoto
             }]);
+
+            // Log interaction
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                await supabase.from('driver_interactions').insert({
+                    driver_id: user.id,
+                    interaction_type: 'photo',
+                    description: 'Subió foto de sustento'
+                });
+            }
         } catch (err) {
             console.error('Error uploading sustento photo:', err);
             alert('Error al subir foto: ' + err.message);
@@ -297,6 +307,16 @@ const ActiveTrip = () => {
             return;
         }
 
+        // Log interaction
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            await supabase.from('driver_interactions').insert({
+                driver_id: user.id,
+                interaction_type: 'trip_end',
+                description: 'Finalizó viaje'
+            });
+        }
+
         setShowFinishModal(false);
 
         // Compute elapsed time from start_time
@@ -336,6 +356,16 @@ const ActiveTrip = () => {
             alert(`Error al registrar relevo: ${error.message}`);
             setRelaying(false);
             return;
+        }
+
+        // Log interaction
+        const { data: { authUser } } = await supabase.auth.getUser();
+        if (authUser) {
+            await supabase.from('driver_interactions').insert({
+                driver_id: authUser.id,
+                interaction_type: 'relay',
+                description: 'Entregó viaje en relevo'
+            });
         }
 
         setShowRelayModal(false);

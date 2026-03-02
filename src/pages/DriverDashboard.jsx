@@ -35,6 +35,22 @@ const DriverDashboard = () => {
     const [uploadingIperc, setUploadingIperc] = useState(false);
     const chequeoFileRef = useRef(null);
     const ipercFileRef = useRef(null);
+    // Fuel Refill (Abastecimiento) state
+    const [showFuelModal, setShowFuelModal] = useState(false);
+    const [fuelMileage, setFuelMileage] = useState('');
+    const [fuelPhoto, setFuelPhoto] = useState(null);
+    const [fuelPhotoPreview, setFuelPhotoPreview] = useState(null);
+    const [fuelSubmitting, setFuelSubmitting] = useState(false);
+    const fuelFileRef = useRef(null);
+
+    // Alert (Reporte/Alerta) state
+    const [showAlertModal, setShowAlertModal] = useState(false);
+    const [alertText, setAlertText] = useState('');
+    const [alertPhoto, setAlertPhoto] = useState(null);
+    const [alertPhotoPreview, setAlertPhotoPreview] = useState(null);
+    const [alertSubmitting, setAlertSubmitting] = useState(false);
+    const alertFileRef = useRef(null);
+
     const navigate = useNavigate();
 
     const fetchData = async () => {
@@ -121,12 +137,21 @@ const DriverDashboard = () => {
         if (!activeMaintenance) return;
         setLoading(true);
         try {
+            const { data: { user } } = await supabase.auth.getUser();
             const { error } = await supabase
                 .from('driver_activities')
                 .update({ end_time: new Date().toISOString() })
                 .eq('id', activeMaintenance.id);
 
             if (error) throw error;
+
+            if (user) {
+                await supabase.from('driver_interactions').insert({
+                    driver_id: user.id,
+                    interaction_type: 'maintenance_end',
+                    description: 'Finalizó mantenimiento'
+                });
+            }
 
             alert('Mantenimiento finalizado correctamente.');
             fetchData(); // Refresh data
@@ -185,6 +210,12 @@ const DriverDashboard = () => {
                 }]);
             if (error) throw error;
 
+            await supabase.from('driver_interactions').insert({
+                driver_id: user.id,
+                interaction_type: 'maintenance_start',
+                description: 'Inició mantenimiento'
+            });
+
             alert('Reporte de mantenimiento enviado correctamente.');
             setShowMaintenance(false);
             setMaintenanceText('');
@@ -229,6 +260,12 @@ const DriverDashboard = () => {
                     uploaded_at: now.toISOString()
                 });
             if (dbError) console.error('Error saving daily check:', dbError);
+
+            await supabase.from('driver_interactions').insert({
+                driver_id: user.id,
+                interaction_type: 'photo',
+                description: `Subió foto de ${type.toUpperCase()}`
+            });
 
             if (type === 'chequeo') {
                 setChequeoDoneToday(true);
@@ -292,6 +329,12 @@ const DriverDashboard = () => {
 
             if (updateError) throw updateError;
 
+            await supabase.from('driver_interactions').insert({
+                driver_id: user.id,
+                interaction_type: 'relay',
+                description: 'Tomó relevo de viaje'
+            });
+
             setShowRelayModal(false);
             setSelectedRelayTrip(null);
             alert('Has tomado exitosamente este viaje en relevo.');
@@ -301,6 +344,134 @@ const DriverDashboard = () => {
             alert(`Error al tomar relevo: ${err.message}`);
         } finally {
             setRelaying(false);
+        }
+    };
+
+    // --- Fuel Refill Logic ---
+    const handleFuelPhotoChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setFuelPhoto(file);
+            setFuelPhotoPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleFuelSubmit = async () => {
+        if (!fuelMileage || isNaN(fuelMileage)) {
+            alert('Por favor, ingresa un kilometraje válido.');
+            return;
+        }
+        if (!fuelPhoto) {
+            alert('Por favor, sube una foto de la boleta o factura.');
+            return;
+        }
+
+        setFuelSubmitting(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("No autenticado");
+
+            // Subir foto
+            const ext = fuelPhoto.name.split('.').pop();
+            const filePath = `fuel_receipts/${user.id}/${Date.now()}.${ext}`;
+            const { error: uploadError } = await supabase.storage
+                .from('trip-photos')
+                .upload(filePath, fuelPhoto);
+
+            if (uploadError) throw uploadError;
+
+            // Guardar registro
+            const { error: dbError } = await supabase
+                .from('fuel_records')
+                .insert([{
+                    driver_id: user.id,
+                    mileage: parseFloat(fuelMileage),
+                    photo_url: filePath
+                }]);
+
+            if (dbError) throw dbError;
+
+            await supabase.from('driver_interactions').insert({
+                driver_id: user.id,
+                interaction_type: 'fuel',
+                description: 'Registró abastecimiento'
+            });
+
+            alert('Abastecimiento registrado correctamente.');
+            setShowFuelModal(false);
+            setFuelMileage('');
+            setFuelPhoto(null);
+            setFuelPhotoPreview(null);
+
+        } catch (err) {
+            console.error('Error submitting fuel record:', err);
+            alert('Error al registrar el abastecimiento.');
+        } finally {
+            setFuelSubmitting(false);
+        }
+    };
+
+    // --- Alert Logic ---
+    const handleAlertPhotoChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setAlertPhoto(file);
+            setAlertPhotoPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleAlertSubmit = async () => {
+        if (!alertText.trim()) {
+            alert('Por favor, describe el inconveniente.');
+            return;
+        }
+        if (!alertPhoto) {
+            alert('Por favor, sube una foto de evidencia.');
+            return;
+        }
+
+        setAlertSubmitting(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("No autenticado");
+
+            // Subir foto
+            const ext = alertPhoto.name.split('.').pop();
+            const filePath = `alerts/${user.id}/${Date.now()}.${ext}`;
+            const { error: uploadError } = await supabase.storage
+                .from('trip-photos')
+                .upload(filePath, alertPhoto);
+
+            if (uploadError) throw uploadError;
+
+            // Guardar registro
+            const { error: dbError } = await supabase
+                .from('driver_alerts')
+                .insert([{
+                    driver_id: user.id,
+                    description: alertText.trim(),
+                    photo_url: filePath
+                }]);
+
+            if (dbError) throw dbError;
+
+            await supabase.from('driver_interactions').insert({
+                driver_id: user.id,
+                interaction_type: 'alert',
+                description: 'Envió alerta o reporte'
+            });
+
+            alert('Alerta enviada correctamente.');
+            setShowAlertModal(false);
+            setAlertText('');
+            setAlertPhoto(null);
+            setAlertPhotoPreview(null);
+
+        } catch (err) {
+            console.error('Error submitting alert:', err);
+            alert('Error al enviar la alerta.');
+        } finally {
+            setAlertSubmitting(false);
         }
     };
 
@@ -528,57 +699,70 @@ const DriverDashboard = () => {
                                 </div>
                             </div>
 
-                            {/* Map Placeholder */}
+                            {/* Map / Details Card */}
                             <div
                                 onClick={() => navigate(`/driver/trip/${activeTrip.id}`)}
                                 style={{
                                     width: '100%',
-                                    height: '180px',
-                                    background: '#E0F2FE', // Keep as light blue for map feel
-                                    borderRadius: '12px',
+                                    height: '110px',
+                                    background: 'linear-gradient(135deg, #1E293B, #0F172A)',
+                                    borderRadius: '16px',
                                     marginBottom: '1.25rem',
                                     position: 'relative',
                                     overflow: 'hidden',
                                     cursor: 'pointer',
-                                    backgroundImage: 'radial-gradient(circle at 10% 20%, rgba(255,255,255,0.4) 10%, transparent 20%), radial-gradient(circle at 90% 80%, rgba(255,255,255,0.4) 10%, transparent 20%)',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center'
+                                    padding: '0 1.25rem',
+                                    boxShadow: '0 6px 16px rgba(0,0,0,0.15)',
+                                    border: '1px solid rgba(255,255,255,0.05)',
+                                    transition: 'transform 0.2s',
                                 }}
+                                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
+                                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                             >
-                                {/* Mock Map Elements */}
+                                {/* Background Grid Pattern */}
                                 <div style={{
                                     position: 'absolute',
-                                    top: '50%', left: '50%',
-                                    transform: 'translate(-50%, -50%)',
-                                    width: '160px', height: '160px',
-                                    border: '2px solid rgba(255,255,255,0.5)',
-                                    borderRadius: '50%',
-                                    opacity: 0.5
+                                    top: 0, left: 0, right: 0, bottom: 0,
+                                    backgroundImage: 'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)',
+                                    backgroundSize: '20px 20px',
+                                    opacity: 0.8,
+                                    zIndex: 0
                                 }} />
-                                <div style={{
-                                    width: '48px', height: '48px',
-                                    background: 'var(--primary-red)',
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    boxShadow: '0 4px 12px rgba(211, 47, 47, 0.4)',
-                                    zIndex: 10
-                                }}>
-                                    <MapPin size={24} color="white" fill="white" />
+
+                                {/* Map Path Graphic Placeholder */}
+                                <div style={{ position: 'absolute', right: '5%', top: '20%', bottom: '20%', width: '120px', zIndex: 1, opacity: 0.5 }}>
+                                    <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+                                        <path d="M 10 90 Q 40 40 90 10" fill="none" stroke="var(--primary-red)" strokeWidth="3" strokeDasharray="6,4" strokeLinecap="round" />
+                                        <circle cx="10" cy="90" r="5" fill="var(--primary-red)" />
+                                        <circle cx="90" cy="10" r="5" fill="#10B981" />
+                                        <circle cx="90" cy="10" r="10" fill="rgba(16, 185, 129, 0.2)" />
+                                    </svg>
                                 </div>
-                                <div style={{
-                                    position: 'absolute',
-                                    bottom: '10px',
-                                    background: 'rgba(255,255,255,0.9)',
-                                    padding: '4px 8px',
-                                    borderRadius: '4px',
-                                    fontSize: '0.65rem',
-                                    color: '#6B7280',
-                                    fontWeight: '500'
-                                }}>
-                                    Google Maps Preview
+
+                                {/* Content */}
+                                <div style={{ position: 'relative', zIndex: 2, display: 'flex', alignItems: 'center', gap: '1rem', width: '100%' }}>
+                                    <div style={{
+                                        width: '44px', height: '44px',
+                                        background: 'rgba(255,255,255,0.1)',
+                                        backdropFilter: 'blur(8px)',
+                                        borderRadius: '12px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        border: '1px solid rgba(255,255,255,0.2)'
+                                    }}>
+                                        <MapPin size={22} color="#FCA5A5" />
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                                        <span style={{ color: 'white', fontWeight: '800', fontSize: '1.05rem', letterSpacing: '0.01em', marginBottom: '0.15rem' }}>
+                                            Ver Detalles y Mapa
+                                        </span>
+                                        <span style={{ color: '#94A3B8', fontSize: '0.8rem', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                            Continuar progreso <ChevronRight size={14} />
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -759,6 +943,69 @@ const DriverDashboard = () => {
                             </div>
                         </Card>
                     )}
+                </section>
+
+                {/* Quick Actions (Fuel & Alerts) */}
+                <section className="mb-10">
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <button
+                            onClick={() => setShowFuelModal(true)}
+                            style={{
+                                flex: 1,
+                                background: 'white',
+                                color: '#0369A1',
+                                border: '1px solid #BAE6FD',
+                                padding: '1rem',
+                                borderRadius: '16px',
+                                fontWeight: '800',
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.5rem',
+                                boxShadow: '0 4px 6px -1px rgba(14, 165, 233, 0.1)',
+                                transition: 'all 0.2s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ background: '#E0F2FE', padding: '0.5rem', borderRadius: '50%' }}>
+                                <Truck size={24} color="#0EA5E9" />
+                            </div>
+                            ABASTECIMIENTO
+                        </button>
+
+                        <button
+                            onClick={() => setShowAlertModal(true)}
+                            style={{
+                                flex: 1,
+                                background: '#FEF2F2',
+                                color: '#DC2626',
+                                border: '1px solid #FECACA',
+                                padding: '1rem',
+                                borderRadius: '16px',
+                                fontWeight: '800',
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.5rem',
+                                boxShadow: '0 4px 6px -1px rgba(220, 38, 38, 0.1)',
+                                transition: 'all 0.2s',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            <div style={{ background: '#FEE2E2', padding: '0.5rem', borderRadius: '50%' }}>
+                                <ShieldCheck size={24} color="#EF4444" />
+                            </div>
+                            ALERTA
+                        </button>
+                    </div>
                 </section>
 
                 {/* Next Trips (Tomar Relevo) */}
@@ -1090,6 +1337,276 @@ const DriverDashboard = () => {
                             <CheckCircle size={22} />
                             {relaying ? 'VERIFICANDO...' : 'CONFIRMAR Y TOMAR'}
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== Fuel Refill (Abastecimiento) Modal ===== */}
+            {showFuelModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60,
+                    backdropFilter: 'blur(4px)', padding: '1rem',
+                }}>
+                    <div style={{
+                        background: 'white', borderRadius: '20px', width: '100%', maxWidth: '460px',
+                        boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.35)',
+                        overflow: 'hidden',
+                    }}>
+                        <div style={{
+                            padding: '1.25rem 1.5rem', borderBottom: '1px solid #E5E7EB',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            background: '#F0F9FF',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{
+                                    width: '40px', height: '40px', borderRadius: '12px',
+                                    background: '#0284C7', display: 'flex',
+                                    alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    <Truck size={20} color="white" />
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#1F2937', margin: 0 }}>
+                                        Abastecimiento
+                                    </h2>
+                                    <p style={{ fontSize: '0.75rem', color: '#64748B', margin: 0, fontWeight: '500' }}>
+                                        Registra el kilometraje y foto de boleta
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowFuelModal(false);
+                                    setFuelMileage('');
+                                    setFuelPhoto(null);
+                                    setFuelPhotoPreview(null);
+                                }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: '4px', borderRadius: '8px' }}
+                            >
+                                <X size={22} />
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '1.5rem' }}>
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#374151', marginBottom: '0.5rem' }}>
+                                Kilometraje Actual
+                            </label>
+                            <input
+                                type="number"
+                                value={fuelMileage}
+                                onChange={(e) => setFuelMileage(e.target.value)}
+                                placeholder="Ej: 154300"
+                                style={{
+                                    width: '100%', padding: '0.875rem', borderRadius: '12px', border: '1px solid #E5E7EB',
+                                    fontSize: '1rem', color: '#1F2937', outline: 'none', boxSizing: 'border-box',
+                                    transition: 'border-color 0.2s', fontWeight: '600'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#0284C7'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#374151', marginBottom: '0.5rem', marginTop: '1.25rem' }}>
+                                Foto de Boleta o Factura
+                            </label>
+                            <input
+                                type="file" accept="image/*" capture="environment"
+                                ref={fuelFileRef} onChange={handleFuelPhotoChange} style={{ display: 'none' }}
+                            />
+                            {fuelPhotoPreview ? (
+                                <div style={{ position: 'relative' }}>
+                                    <img src={fuelPhotoPreview} alt="Boleta" style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: '12px', border: '2px solid #0284C7' }} />
+                                    <button
+                                        onClick={() => {
+                                            setFuelPhoto(null); setFuelPhotoPreview(null);
+                                            if (fuelFileRef.current) fuelFileRef.current.value = '';
+                                        }}
+                                        style={{
+                                            position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', border: 'none',
+                                            borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: 'pointer', color: 'white'
+                                        }}
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => fuelFileRef.current?.click()}
+                                    style={{
+                                        width: '100%', padding: '2rem', borderRadius: '12px', border: '2px dashed #CBD5E1',
+                                        background: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                        gap: '0.5rem', cursor: 'pointer', transition: 'all 0.2s',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#0284C7'; e.currentTarget.style.background = '#F0F9FF'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#CBD5E1'; e.currentTarget.style.background = '#F8FAFC'; }}
+                                >
+                                    <Camera size={32} color="#94A3B8" strokeWidth={1.5} />
+                                    <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#475569' }}>Tomar foto a la boleta</span>
+                                </button>
+                            )}
+                        </div>
+
+                        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #E5E7EB', display: 'flex', gap: '0.75rem' }}>
+                            <button
+                                onClick={() => {
+                                    setShowFuelModal(false); setFuelMileage(''); setFuelPhoto(null); setFuelPhotoPreview(null);
+                                }}
+                                style={{
+                                    flex: 1, padding: '0.875rem', background: 'white', color: '#64748B', border: '1px solid #E5E7EB',
+                                    borderRadius: '12px', fontWeight: '700', fontSize: '0.9rem', cursor: 'pointer',
+                                }}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleFuelSubmit}
+                                disabled={fuelSubmitting || !fuelMileage || !fuelPhoto}
+                                style={{
+                                    flex: 1, padding: '0.875rem', background: (fuelMileage && fuelPhoto) ? '#0284C7' : '#7DD3FC',
+                                    color: 'white', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '0.9rem',
+                                    cursor: (fuelMileage && fuelPhoto) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                    boxShadow: (fuelMileage && fuelPhoto) ? '0 4px 12px rgba(2, 132, 199, 0.3)' : 'none', transition: 'background 0.2s',
+                                }}
+                            >
+                                {fuelSubmitting ? 'Guardando...' : <><CheckCircle size={18} /> Registrar</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== Alert/Report Modal ===== */}
+            {showAlertModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60,
+                    backdropFilter: 'blur(4px)', padding: '1rem',
+                }}>
+                    <div style={{
+                        background: 'white', borderRadius: '20px', width: '100%', maxWidth: '460px',
+                        boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.4)',
+                        overflow: 'hidden',
+                    }}>
+                        <div style={{
+                            padding: '1.25rem 1.5rem', borderBottom: '1px solid #FECACA',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            background: '#FEF2F2',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{
+                                    width: '40px', height: '40px', borderRadius: '12px',
+                                    background: '#DC2626', display: 'flex',
+                                    alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    <ShieldCheck size={20} color="white" />
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#991B1B', margin: 0 }}>
+                                        Reporte o Alerta
+                                    </h2>
+                                    <p style={{ fontSize: '0.75rem', color: '#B91C1C', margin: 0, fontWeight: '500' }}>
+                                        Informa de choques, tráfico u otros incidentes
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowAlertModal(false);
+                                    setAlertText('');
+                                    setAlertPhoto(null);
+                                    setAlertPhotoPreview(null);
+                                }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#F87171', padding: '4px', borderRadius: '8px' }}
+                            >
+                                <X size={22} />
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '1.5rem' }}>
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#374151', marginBottom: '0.5rem' }}>
+                                ¿Qué sucedió? (Descripción)
+                            </label>
+                            <textarea
+                                value={alertText}
+                                onChange={(e) => setAlertText(e.target.value)}
+                                placeholder="Describe el inconveniente en detalle..."
+                                rows={4}
+                                style={{
+                                    width: '100%', padding: '0.875rem', borderRadius: '12px', border: '1px solid #E5E7EB',
+                                    fontSize: '0.95rem', color: '#1F2937', outline: 'none', boxSizing: 'border-box',
+                                    transition: 'border-color 0.2s', resize: 'vertical'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#DC2626'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#374151', marginBottom: '0.5rem', marginTop: '1.25rem' }}>
+                                Evidencia Fotográfica
+                            </label>
+                            <input
+                                type="file" accept="image/*" capture="environment"
+                                ref={alertFileRef} onChange={handleAlertPhotoChange} style={{ display: 'none' }}
+                            />
+                            {alertPhotoPreview ? (
+                                <div style={{ position: 'relative' }}>
+                                    <img src={alertPhotoPreview} alt="Evidencia de Alerta" style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: '12px', border: '2px solid #DC2626' }} />
+                                    <button
+                                        onClick={() => {
+                                            setAlertPhoto(null); setAlertPhotoPreview(null);
+                                            if (alertFileRef.current) alertFileRef.current.value = '';
+                                        }}
+                                        style={{
+                                            position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', border: 'none',
+                                            borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            cursor: 'pointer', color: 'white'
+                                        }}
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => alertFileRef.current?.click()}
+                                    style={{
+                                        width: '100%', padding: '2rem', borderRadius: '12px', border: '2px dashed #FCA5A5',
+                                        background: '#FEF2F2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                        gap: '0.5rem', cursor: 'pointer', transition: 'all 0.2s',
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#DC2626'; e.currentTarget.style.background = '#FEE2E2'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#FCA5A5'; e.currentTarget.style.background = '#FEF2F2'; }}
+                                >
+                                    <Camera size={32} color="#F87171" strokeWidth={1.5} />
+                                    <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#B91C1C' }}>Tomar foto de evidencia</span>
+                                </button>
+                            )}
+                        </div>
+
+                        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #FEE2E2', display: 'flex', gap: '0.75rem' }}>
+                            <button
+                                onClick={() => {
+                                    setShowAlertModal(false); setAlertText(''); setAlertPhoto(null); setAlertPhotoPreview(null);
+                                }}
+                                style={{
+                                    flex: 1, padding: '0.875rem', background: 'white', color: '#991B1B', border: '1px solid #FECACA',
+                                    borderRadius: '12px', fontWeight: '700', fontSize: '0.9rem', cursor: 'pointer',
+                                }}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleAlertSubmit}
+                                disabled={alertSubmitting || !alertText.trim() || !alertPhoto}
+                                style={{
+                                    flex: 1, padding: '0.875rem', background: (alertText.trim() && alertPhoto) ? '#DC2626' : '#FCA5A5',
+                                    color: 'white', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '0.9rem',
+                                    cursor: (alertText.trim() && alertPhoto) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                    boxShadow: (alertText.trim() && alertPhoto) ? '0 4px 12px rgba(220, 38, 38, 0.4)' : 'none', transition: 'background 0.2s',
+                                }}
+                            >
+                                {alertSubmitting ? 'Enviando...' : <><ShieldCheck size={18} /> Enviar Alerta</>}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
