@@ -20,6 +20,12 @@ const DriverDashboard = () => {
     const [maintenancePhotoPreview, setMaintenancePhotoPreview] = useState(null);
     const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
     const maintenanceFileRef = useRef(null);
+
+    // Relay (Tomar Relevo) state
+    const [showRelayModal, setShowRelayModal] = useState(false);
+    const [selectedRelayTrip, setSelectedRelayTrip] = useState(null);
+    const [relayPin, setRelayPin] = useState('');
+    const [relaying, setRelaying] = useState(false);
     // CHEQUEO / IPERC
     const [chequeoDoneToday, setChequeoDoneToday] = useState(false);
     const [ipercDoneToday, setIpercDoneToday] = useState(false);
@@ -69,7 +75,7 @@ const DriverDashboard = () => {
                     .from('trips')
                     .select('*')
                     .eq('driver_id', user.id)
-                    .eq('status', 'created') // Changed from 'pending' to 'created' to match original logic
+                    .eq('status', 'relevado') // Changed: Fetch trips waiting for relay
                     .order('start_time', { ascending: true });
                 setNextTrips(next || []);
             }
@@ -238,6 +244,63 @@ const DriverDashboard = () => {
             alert(`Error al subir foto de ${type.toUpperCase()}.`);
         } finally {
             setter(false);
+        }
+    };
+
+    const handleTakeRelayClick = (trip) => {
+        setSelectedRelayTrip(trip);
+        setRelayPin('');
+        setShowRelayModal(true);
+    };
+
+    const handleConfirmRelay = async () => {
+        if (!selectedRelayTrip) return;
+        if (!relayPin || relayPin.length !== 3 || !/^\d{3}$/.test(relayPin)) {
+            alert('Ingrese una clave de seguridad válida de 3 dígitos');
+            return;
+        }
+
+        setRelaying(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("No autenticado");
+
+            // Verify PIN against the trip record
+            const { data: tripData, error: fetchError } = await supabase
+                .from('trips')
+                .select('relay_pin')
+                .eq('id', selectedRelayTrip.id)
+                .single();
+
+            if (fetchError) throw fetchError;
+
+            if (tripData.relay_pin !== relayPin) {
+                alert('Clave incorrecta. Intente nuevamente.');
+                setRelaying(false);
+                return;
+            }
+
+            // Valid PIN -> Update trip
+            const { error: updateError } = await supabase
+                .from('trips')
+                .update({
+                    status: 'in_progress',
+                    driver_id: user.id,
+                    relay_pin: null
+                })
+                .eq('id', selectedRelayTrip.id);
+
+            if (updateError) throw updateError;
+
+            setShowRelayModal(false);
+            setSelectedRelayTrip(null);
+            alert('Has tomado exitosamente este viaje en relevo.');
+            navigate(`/driver/trip/${selectedRelayTrip.id}`);
+        } catch (err) {
+            console.error('Error confirming relay:', err);
+            alert(`Error al tomar relevo: ${err.message}`);
+        } finally {
+            setRelaying(false);
         }
     };
 
@@ -433,7 +496,7 @@ const DriverDashboard = () => {
                                 <div style={{ color: 'var(--text-medium)', fontSize: '0.9rem', marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
                                     {activeTrip.trip_containers && activeTrip.trip_containers.length > 0 ? (
                                         activeTrip.trip_containers.map((c, i) => (
-                                            <span key={i} style={{ fontSize: '0.75rem', color: 'var(--text-dark)', fontWeight: '600', background: '#F3F4F6', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
+                                            <span key={i} style={{ fontSize: '0.75rem', color: 'var(--text-dark)', fontWeight: '600', background: 'var(--bg-light)', border: '1px solid var(--border-light)', padding: '0.2rem 0.5rem', borderRadius: '6px' }}>
                                                 {c.container_number}
                                             </span>
                                         ))
@@ -698,17 +761,17 @@ const DriverDashboard = () => {
                     )}
                 </section>
 
-                {/* Next Trips */}
+                {/* Next Trips (Tomar Relevo) */}
                 <section className="mb-24">
                     <div className="flex justify-between items-center mb-4">
                         <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--text-dark)' }}>
-                            Próximos Viajes
+                            Tomar Relevo
                         </h3>
                     </div>
 
                     <div className="flex flex-col gap-3">
                         {nextTrips.length > 0 ? nextTrips.map(trip => (
-                            <div key={trip.id} onClick={() => navigate(`/driver/new-trip?tripId=${trip.id}`)} style={{
+                            <div key={trip.id} onClick={() => handleTakeRelayClick(trip)} style={{
                                 background: 'var(--bg-card)',
                                 borderRadius: '12px',
                                 padding: '1rem',
@@ -726,16 +789,16 @@ const DriverDashboard = () => {
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    color: 'var(--text-light)'
+                                    color: 'var(--text-dark)'
                                 }}>
-                                    <Clock size={20} />
+                                    <Truck size={20} />
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                    <h4 style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-dark)', marginBottom: '0.125rem' }}>
-                                        {trip.origin} → {trip.destination}
+                                    <h4 style={{ fontSize: '0.95rem', fontWeight: '800', color: 'var(--text-dark)', marginBottom: '0.125rem' }}>
+                                        Unidad {trip.vehicle_plate}
                                     </h4>
                                     <div className="flex items-center gap-2 text-xs text-muted" style={{ color: 'var(--text-light)' }}>
-                                        <span>{new Date(trip.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        <span>{trip.origin} → {trip.destination}</span>
                                         <span>•</span>
                                         <span>Ref: {trip.id.toString().slice(-5)}</span>
                                     </div>
@@ -744,7 +807,7 @@ const DriverDashboard = () => {
                             </div>
                         )) : (
                             <div className="p-4 text-center text-muted text-sm rounded-xl border border-dashed border-gray-200" style={{ color: 'var(--text-light)', borderColor: 'var(--border-light)', background: 'var(--bg-card)' }}>
-                                No tienes viajes pendientes.
+                                No hay viajes disponibles para tomar relevo.
                             </div>
                         )}
                     </div>
@@ -943,6 +1006,90 @@ const DriverDashboard = () => {
                                 {maintenanceSubmitting ? 'Enviando...' : <><Wrench size={18} /> Enviar Reporte</>}
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Tomar Relevo PIN Modal */}
+            {showRelayModal && selectedRelayTrip && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '1.5rem'
+                }}>
+                    <div style={{
+                        background: 'var(--bg-card)', borderRadius: '24px',
+                        padding: '2rem', width: '100%', maxWidth: '400px',
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <div style={{ background: '#F3F4F6', padding: '0.5rem', borderRadius: '10px' }}>
+                                    <Truck size={24} color="#374151" />
+                                </div>
+                                <h3 style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--text-dark)', margin: 0 }}>Tomar Relevo</h3>
+                            </div>
+                            <button onClick={() => setShowRelayModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF' }}>
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        <p style={{ color: 'var(--text-medium)', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: '1.5' }}>
+                            Ingrese la <strong>clave de 3 dígitos</strong> proporcionada por el conductor anterior para continuar con el viaje de la unidad <strong>{selectedRelayTrip.vehicle_plate}</strong>.
+                        </p>
+
+                        <div style={{ marginBottom: '2rem' }}>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-light)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Clave de Seguridad (3 dígitos)
+                            </label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={3}
+                                value={relayPin}
+                                onChange={(e) => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    if (val.length <= 3) setRelayPin(val);
+                                }}
+                                placeholder="***"
+                                style={{
+                                    width: '100%',
+                                    padding: '1rem',
+                                    fontSize: '2rem',
+                                    fontWeight: '800',
+                                    textAlign: 'center',
+                                    letterSpacing: '0.5rem',
+                                    border: '2px solid var(--border-light)',
+                                    borderRadius: '16px',
+                                    outline: 'none',
+                                    color: 'var(--text-dark)',
+                                    background: '#F9FAFB',
+                                    transition: 'border-color 0.2s'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = 'var(--text-dark)'}
+                                onBlur={(e) => e.target.style.borderColor = 'var(--border-light)'}
+                            />
+                        </div>
+
+                        <button
+                            onClick={handleConfirmRelay}
+                            disabled={relaying || relayPin.length !== 3}
+                            style={{
+                                width: '100%',
+                                background: relayPin.length === 3 ? 'var(--text-dark)' : '#E5E7EB',
+                                color: relayPin.length === 3 ? 'white' : '#9CA3AF',
+                                border: 'none', padding: '1rem',
+                                borderRadius: '16px', fontWeight: '800',
+                                fontSize: '1rem', cursor: relayPin.length === 3 ? 'pointer' : 'not-allowed',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                transition: 'all 0.2s',
+                                boxShadow: relayPin.length === 3 ? '0 4px 12px rgba(0, 0, 0, 0.2)' : 'none'
+                            }}
+                        >
+                            <CheckCircle size={22} />
+                            {relaying ? 'VERIFICANDO...' : 'CONFIRMAR Y TOMAR'}
+                        </button>
                     </div>
                 </div>
             )}

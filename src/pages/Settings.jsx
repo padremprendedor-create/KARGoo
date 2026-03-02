@@ -64,7 +64,7 @@ const Settings = () => {
     );
 
     const SettingRow = ({ icon: Icon, label, right, onClick, borderBottom = true }) => (
-        <button
+        <div
             onClick={onClick}
             style={{
                 width: '100%',
@@ -92,7 +92,7 @@ const Settings = () => {
                 {label}
             </span>
             {right}
-        </button>
+        </div>
     );
 
     return (

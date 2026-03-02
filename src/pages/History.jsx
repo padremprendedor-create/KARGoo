@@ -20,7 +20,7 @@ const History = () => {
             .from('trips')
             .select('*, trip_containers(*)')
             .eq('driver_id', user.id)
-            .in('status', ['completed', 'cancelled', 'approved', 'rejected'])
+            .in('status', ['completed', 'cancelled', 'approved', 'rejected', 'relevado'])
             .order('end_time', { ascending: false });
 
         setTrips(data || []);
@@ -126,13 +126,15 @@ const History = () => {
                                     </span>
                                     <span style={{
                                         background: trip.status === 'approved' ? '#DCFCE7'
-                                            : trip.status === 'rejected' ? '#FEF3C7'
-                                                : trip.status === 'completed' ? '#EFF6FF'
-                                                    : '#FEE2E2',
+                                            : trip.status === 'relevado' ? '#F3F4F6'
+                                                : trip.status === 'rejected' ? '#FEF3C7'
+                                                    : trip.status === 'completed' ? '#EFF6FF'
+                                                        : '#FEE2E2',
                                         color: trip.status === 'approved' ? '#16A34A'
-                                            : trip.status === 'rejected' ? '#D97706'
-                                                : trip.status === 'completed' ? '#2563EB'
-                                                    : '#DC2626',
+                                            : trip.status === 'relevado' ? '#4B5563'
+                                                : trip.status === 'rejected' ? '#D97706'
+                                                    : trip.status === 'completed' ? '#2563EB'
+                                                        : '#DC2626',
                                         padding: '0.25rem 0.625rem',
                                         borderRadius: '999px',
                                         fontSize: '0.65rem',
@@ -141,9 +143,10 @@ const History = () => {
                                         textTransform: 'uppercase'
                                     }}>
                                         {trip.status === 'approved' ? 'APROBADO'
-                                            : trip.status === 'rejected' ? 'OBSERVADO'
-                                                : trip.status === 'completed' ? 'POR REVISAR'
-                                                    : 'CANCELADO'}
+                                            : trip.status === 'relevado' ? 'RELEVADO'
+                                                : trip.status === 'rejected' ? 'OBSERVADO'
+                                                    : trip.status === 'completed' ? 'POR REVISAR'
+                                                        : 'CANCELADO'}
                                     </span>
                                 </div>
 

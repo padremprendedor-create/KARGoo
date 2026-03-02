@@ -596,7 +596,7 @@ const TripDetails = () => {
                                     <div key={photo.id} style={{
                                         width: 'calc(33.33% - 0.5rem)', aspectRatio: '1',
                                         borderRadius: '12px', overflow: 'hidden',
-                                        background: '#F3F4F6', border: '1px solid #E5E7EB',
+                                        background: 'var(--bg-light)', border: '1px solid var(--border-light)',
                                         cursor: url ? 'pointer' : 'default'
                                     }}
                                         onClick={() => { if (url) { setModalImageUrl(url); setShowImageModal(true); } }}

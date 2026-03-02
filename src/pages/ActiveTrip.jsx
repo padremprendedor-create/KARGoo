@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, MapPin, Truck, Camera, CheckCircle, HelpCircle, Gauge, X, Image, Plus, Package } from 'lucide-react';
+import { ChevronLeft, MapPin, Truck, Camera, CheckCircle, HelpCircle, Gauge, X, Image, Plus, Package, Navigation } from 'lucide-react';
 import { GoogleMap, useJsApiLoader, Marker, Polyline, Autocomplete } from '@react-google-maps/api';
 import Card from '../components/ui/Card';
 import PhotoConfirmModal from '../components/PhotoConfirmModal';
@@ -28,6 +28,11 @@ const ActiveTrip = () => {
     const [finishing, setFinishing] = useState(false);
     const [showFinishModal, setShowFinishModal] = useState(false);
     const [kmEnd, setKmEnd] = useState('');
+
+    // Relay (Relevo) state
+    const [showRelayModal, setShowRelayModal] = useState(false);
+    const [relayPin, setRelayPin] = useState('');
+    const [relaying, setRelaying] = useState(false);
 
     // Sustento photos (1-3)
     const [sustentoPhotos, setSustentoPhotos] = useState([]);
@@ -311,6 +316,32 @@ const ActiveTrip = () => {
         });
     };
 
+    const handleRelayTrip = async () => {
+        if (!relayPin || relayPin.length !== 3 || !/^\d{3}$/.test(relayPin)) {
+            alert('Ingrese una clave de seguridad válida de 3 dígitos');
+            return;
+        }
+
+        setRelaying(true);
+        const { error } = await supabase
+            .from('trips')
+            .update({
+                status: 'relevado',
+                relay_pin: relayPin,
+            })
+            .eq('id', parseInt(id));
+
+        if (error) {
+            console.error('Error in relay trip:', error);
+            alert(`Error al registrar relevo: ${error.message}`);
+            setRelaying(false);
+            return;
+        }
+
+        setShowRelayModal(false);
+        navigate('/driver');
+    };
+
     if (loading) {
         return (
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -432,8 +463,8 @@ const ActiveTrip = () => {
                                 {trip.trip_containers && trip.trip_containers.length > 0 ? (
                                     trip.trip_containers.map((c, i) => (
                                         <div key={i} style={{
-                                            background: '#F3F4F6',
-                                            border: '1px solid #E5E7EB',
+                                            background: 'var(--bg-light)',
+                                            border: '1px solid var(--border-light)',
                                             padding: '0.5rem 1rem',
                                             borderRadius: '12px',
                                             display: 'flex',
@@ -523,12 +554,9 @@ const ActiveTrip = () => {
                                 >
                                     {/* Marcador del conductor */}
                                     <Marker position={currentLocation} icon={{
-                                        path: window.google.maps.SymbolPath.CIRCLE,
-                                        scale: 9,
-                                        fillColor: "#EF4444",
-                                        fillOpacity: 1,
-                                        strokeWeight: 3,
-                                        strokeColor: "#ffffff",
+                                        url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent('<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg"><circle cx="24" cy="24" r="18" fill="#EF4444" stroke="white" stroke-width="2" /><circle cx="24" cy="24" r="24" fill="#EF4444" fill-opacity="0.2" /><svg x="12" y="12" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg></svg>')}`,
+                                        scaledSize: new window.google.maps.Size(48, 48),
+                                        anchor: new window.google.maps.Point(24, 24)
                                     }} />
 
                                     {/* Ruta trazada si existe destino */}
@@ -538,7 +566,7 @@ const ActiveTrip = () => {
                                             options={{
                                                 strokeColor: "#EF4444",
                                                 strokeOpacity: 1,
-                                                strokeWeight: 5
+                                                strokeWeight: 6
                                             }}
                                         />
                                     )}
@@ -563,13 +591,43 @@ const ActiveTrip = () => {
                             padding: '0.75rem 1rem',
                             display: 'flex',
                             alignItems: 'center',
+                            justifyContent: 'space-between',
                             gap: '0.75rem',
                             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                         }}>
-                            <MapPin size={20} color="var(--primary-red)" fill="var(--primary-red)" />
-                            <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                Av. Gambetta, Callao - 1.2km de destino
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
+                                <MapPin size={20} color="var(--primary-red)" fill="var(--primary-red)" style={{ flexShrink: 0 }} />
+                                <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {trip?.destination || 'Destino...'}
+                                </span>
+                            </div>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (destinationCoords) {
+                                        window.open(`https://www.google.com/maps/dir/?api=1&destination=${destinationCoords.lat},${destinationCoords.lng}&travelmode=driving`, '_blank');
+                                    } else if (trip?.destination) {
+                                        window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(trip.destination)}&travelmode=driving`, '_blank');
+                                    }
+                                }}
+                                style={{
+                                    background: '#3B82F6',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    padding: '0.5rem 0.75rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: '800',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    cursor: 'pointer',
+                                    flexShrink: 0,
+                                    boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                                }}
+                            >
+                                <Navigation size={14} /> Navegar
+                            </button>
                         </div>
                     </Card>
 
@@ -677,25 +735,50 @@ const ActiveTrip = () => {
 
                     {/* Actions */}
                     <div className="flex flex-col gap-3">
-                        <button
-                            onClick={() => navigate(`/driver/trip/${id}/weighing`)}
-                            style={{
-                                background: 'var(--bg-card)',
-                                color: 'var(--primary-red)',
-                                border: '2px solid var(--primary-red)',
-                                padding: '1rem',
-                                borderRadius: '12px',
-                                fontWeight: '800',
-                                fontSize: '1rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '0.5rem',
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-                            }}>
-                            <Camera size={22} /> Registrar Ticket
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            <button
+                                onClick={() => setShowRelayModal(true)}
+                                disabled={finishing || relaying}
+                                style={{
+                                    flex: 1,
+                                    background: 'var(--bg-card)',
+                                    color: 'var(--text-dark)',
+                                    border: '2px solid var(--border-light)',
+                                    padding: '1rem',
+                                    borderRadius: '12px',
+                                    fontWeight: '800',
+                                    fontSize: '0.9rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.5rem',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                                }}>
+                                <Truck size={22} /> Relevo
+                            </button>
+                            <button
+                                onClick={() => navigate(`/driver/trip/${id}/weighing`)}
+                                disabled={finishing || relaying}
+                                style={{
+                                    flex: 1,
+                                    background: 'var(--bg-card)',
+                                    color: 'var(--primary-red)',
+                                    border: '2px solid var(--primary-red)',
+                                    padding: '1rem',
+                                    borderRadius: '12px',
+                                    fontWeight: '800',
+                                    fontSize: '0.9rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.5rem',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                                }}>
+                                <Camera size={22} /> Ticket
+                            </button>
+                        </div>
                         <button
                             onClick={() => setShowFinishModal(true)}
                             disabled={finishing}
@@ -861,6 +944,90 @@ const ActiveTrip = () => {
                     />
                 )
             }
+
+            {/* Relay (Relevo) Modal */}
+            {showRelayModal && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '1.5rem'
+                }}>
+                    <div style={{
+                        background: 'var(--bg-card)', borderRadius: '24px',
+                        padding: '2rem', width: '100%', maxWidth: '400px',
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <div style={{ background: '#F3F4F6', padding: '0.5rem', borderRadius: '10px' }}>
+                                    <Truck size={24} color="#374151" />
+                                </div>
+                                <h3 style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--text-dark)', margin: 0 }}>Relevar Viaje</h3>
+                            </div>
+                            <button onClick={() => setShowRelayModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF' }}>
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        <p style={{ color: 'var(--text-medium)', fontSize: '0.95rem', marginBottom: '1.5rem', lineHeight: '1.5' }}>
+                            Ingrese una <strong>clave de 3 dígitos</strong>. El conductor del siguiente turno necesitará esta clave para retomar el viaje.
+                        </p>
+
+                        <div style={{ marginBottom: '2rem' }}>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-light)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Clave de Seguridad (3 dígitos)
+                            </label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={3}
+                                value={relayPin}
+                                onChange={(e) => {
+                                    const val = e.target.value.replace(/\D/g, '');
+                                    if (val.length <= 3) setRelayPin(val);
+                                }}
+                                placeholder="***"
+                                style={{
+                                    width: '100%',
+                                    padding: '1rem',
+                                    fontSize: '2rem',
+                                    fontWeight: '800',
+                                    textAlign: 'center',
+                                    letterSpacing: '0.5rem',
+                                    border: '2px solid var(--border-light)',
+                                    borderRadius: '16px',
+                                    outline: 'none',
+                                    color: 'var(--text-dark)',
+                                    background: '#F9FAFB',
+                                    transition: 'border-color 0.2s'
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = 'var(--text-dark)'}
+                                onBlur={(e) => e.target.style.borderColor = 'var(--border-light)'}
+                            />
+                        </div>
+
+                        <button
+                            onClick={handleRelayTrip}
+                            disabled={relaying || relayPin.length !== 3}
+                            style={{
+                                width: '100%',
+                                background: relayPin.length === 3 ? 'var(--text-dark)' : '#E5E7EB',
+                                color: relayPin.length === 3 ? 'white' : '#9CA3AF',
+                                border: 'none', padding: '1rem',
+                                borderRadius: '16px', fontWeight: '800',
+                                fontSize: '1rem', cursor: relayPin.length === 3 ? 'pointer' : 'not-allowed',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                transition: 'all 0.2s',
+                                boxShadow: relayPin.length === 3 ? '0 4px 12px rgba(0, 0, 0, 0.2)' : 'none'
+                            }}
+                        >
+                            <CheckCircle size={22} />
+                            {relaying ? 'PROCESANDO...' : 'CONFIRMAR RELEVO'}
+                        </button>
+                    </div>
+                </div>
+            )}
         </>
     );
 };
