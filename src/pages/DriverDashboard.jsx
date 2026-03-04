@@ -18,6 +18,7 @@ const DriverDashboard = () => {
     const [activeMaintenance, setActiveMaintenance] = useState(null);
     const [showMaintenance, setShowMaintenance] = useState(false);
     const [maintenanceText, setMaintenanceText] = useState('');
+    const [maintenanceMileage, setMaintenanceMileage] = useState('');
     const [maintenancePhoto, setMaintenancePhoto] = useState(null);
     const [maintenancePhotoPreview, setMaintenancePhotoPreview] = useState(null);
     const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
@@ -27,6 +28,7 @@ const DriverDashboard = () => {
     const [showRelayModal, setShowRelayModal] = useState(false);
     const [selectedRelayTrip, setSelectedRelayTrip] = useState(null);
     const [relayPin, setRelayPin] = useState('');
+    const [relayMileage, setRelayMileage] = useState('');
     const [relaying, setRelaying] = useState(false);
     // CHEQUEO / IPERC
     const [chequeoDoneToday, setChequeoDoneToday] = useState(false);
@@ -111,14 +113,29 @@ const DriverDashboard = () => {
 
             setActiveMaintenance(maintenanceData || null);
 
-            // Check if CHEQUEO/IPERC were uploaded today (from DB)
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
+            // Check if CHEQUEO/IPERC were uploaded in the current shift
+            const now = new Date();
+            const currentHour = now.getHours();
+            let shiftStart = new Date(now);
+
+            if (currentHour >= 6 && currentHour < 18) {
+                // Day shift: 06:00 to 18:00 today
+                shiftStart.setHours(6, 0, 0, 0);
+            } else {
+                // Night shift: 18:00 to 06:00
+                if (currentHour >= 18) {
+                    shiftStart.setHours(18, 0, 0, 0);
+                } else {
+                    shiftStart.setDate(shiftStart.getDate() - 1);
+                    shiftStart.setHours(18, 0, 0, 0);
+                }
+            }
+
             const { data: dailyChecks } = await supabase
                 .from('driver_daily_checks')
                 .select('check_type, uploaded_at')
                 .eq('driver_id', user.id)
-                .gte('uploaded_at', todayStart.toISOString())
+                .gte('uploaded_at', shiftStart.toISOString())
                 .order('uploaded_at', { ascending: false });
 
             const chequeoCheck = dailyChecks?.find(c => c.check_type === 'chequeo');
@@ -212,8 +229,20 @@ const DriverDashboard = () => {
                     reason: maintenanceText.trim(),
                     photo_url: photoUrl,
                     start_time: new Date().toISOString(),
+                    vehicle_plate: activeTrip?.vehicle_plate || null,
+                    mileage: maintenanceMileage ? parseFloat(maintenanceMileage) : null
                 }]);
             if (error) throw error;
+
+            if (maintenanceMileage && activeTrip?.vehicle_plate) {
+                const { error: mileageErr } = await supabase.from('vehicle_mileage_logs').insert({
+                    vehicle_plate: activeTrip.vehicle_plate,
+                    driver_id: user.id,
+                    mileage: parseFloat(maintenanceMileage),
+                    event_type: 'maintenance'
+                });
+                if (mileageErr) console.warn('Mileage log failed:', mileageErr.message);
+            }
 
             const { error: intErrM } = await supabase.from('driver_interactions').insert({
                 driver_id: user.id,
@@ -225,6 +254,7 @@ const DriverDashboard = () => {
             alert('Reporte de mantenimiento enviado correctamente.');
             setShowMaintenance(false);
             setMaintenanceText('');
+            setMaintenanceMileage('');
             setMaintenancePhoto(null);
             setMaintenancePhotoPreview(null);
             fetchData(); // Refresh to show active maintenance
@@ -315,6 +345,7 @@ const DriverDashboard = () => {
     const handleTakeRelayClick = (trip) => {
         setSelectedRelayTrip(trip);
         setRelayPin('');
+        setRelayMileage('');
         setShowRelayModal(true);
     };
 
@@ -322,6 +353,10 @@ const DriverDashboard = () => {
         if (!selectedRelayTrip) return;
         if (!relayPin || relayPin.length !== 3 || !/^\d{3}$/.test(relayPin)) {
             alert('Ingrese una clave de seguridad válida de 3 dígitos');
+            return;
+        }
+        if (!relayMileage || isNaN(relayMileage)) {
+            alert('Ingrese el kilometraje actual del vehículo');
             return;
         }
 
@@ -364,8 +399,18 @@ const DriverDashboard = () => {
             });
             if (intErrR) console.warn('driver_interactions insert failed:', intErrR.message);
 
+            // Log mileage
+            const { error: mileageErr } = await supabase.from('vehicle_mileage_logs').insert({
+                vehicle_plate: selectedRelayTrip.vehicle_plate,
+                driver_id: user.id,
+                mileage: parseFloat(relayMileage),
+                event_type: 'relay'
+            });
+            if (mileageErr) console.warn('Mileage log failed:', mileageErr.message);
+
             setShowRelayModal(false);
             setSelectedRelayTrip(null);
+            setRelayMileage('');
             alert('Has tomado exitosamente este viaje en relevo.');
             navigate(`/driver/trip/${selectedRelayTrip.id}`);
         } catch (err) {
@@ -412,15 +457,28 @@ const DriverDashboard = () => {
             if (uploadError) throw uploadError;
 
             // Guardar registro
+            const vehiclePlate = activeTrip?.vehicle_plate || 'N/A';
             const { error: dbError } = await supabase
                 .from('fuel_records')
                 .insert([{
                     driver_id: user.id,
                     mileage: parseFloat(fuelMileage),
-                    photo_url: filePath
+                    photo_url: filePath,
+                    vehicle_plate: vehiclePlate === 'N/A' ? null : vehiclePlate
                 }]);
 
             if (dbError) throw dbError;
+
+            if (vehiclePlate !== 'N/A') {
+                const { error: mileageErr } = await supabase.from('vehicle_mileage_logs').insert({
+                    vehicle_plate: vehiclePlate,
+                    driver_id: user.id,
+                    mileage: parseFloat(fuelMileage),
+                    event_type: 'fuel',
+                    photo_url: filePath
+                });
+                if (mileageErr) console.warn('Mileage log failed:', mileageErr.message);
+            }
 
             const { error: intErrF } = await supabase.from('driver_interactions').insert({
                 driver_id: user.id,
@@ -1163,7 +1221,7 @@ const DriverDashboard = () => {
                                 value={maintenanceText}
                                 onChange={(e) => setMaintenanceText(e.target.value)}
                                 placeholder="Ej: Cambio de aceite, revisión de frenos, llanta ponchada..."
-                                rows={4}
+                                rows={3}
                                 style={{
                                     width: '100%', padding: '0.875rem',
                                     borderRadius: '12px', border: '1px solid #E5E7EB',
@@ -1171,6 +1229,23 @@ const DriverDashboard = () => {
                                     resize: 'vertical', outline: 'none',
                                     fontFamily: 'inherit', boxSizing: 'border-box',
                                     transition: 'border-color 0.2s',
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#F97316'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            />
+
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#374151', marginBottom: '0.5rem', marginTop: '1rem' }}>
+                                Kilometraje (Opcional)
+                            </label>
+                            <input
+                                type="number"
+                                value={maintenanceMileage}
+                                onChange={(e) => setMaintenanceMileage(e.target.value)}
+                                placeholder="Ej: 154300"
+                                style={{
+                                    width: '100%', padding: '0.875rem', borderRadius: '12px', border: '1px solid #E5E7EB',
+                                    fontSize: '0.9rem', color: '#1F2937', outline: 'none', boxSizing: 'border-box',
+                                    transition: 'border-color 0.2s'
                                 }}
                                 onFocus={(e) => e.target.style.borderColor = '#F97316'}
                                 onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
@@ -1317,42 +1392,55 @@ const DriverDashboard = () => {
                             Ingrese la <strong>clave de 3 dígitos</strong> proporcionada por el conductor anterior para continuar con el viaje de la unidad <strong>{selectedRelayTrip.vehicle_plate}</strong>.
                         </p>
 
-                        <div style={{ marginBottom: '2rem' }}>
-                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-light)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                Clave de Seguridad (3 dígitos)
-                            </label>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                maxLength={3}
-                                value={relayPin}
-                                onChange={(e) => {
-                                    const val = e.target.value.replace(/\D/g, '');
-                                    if (val.length <= 3) setRelayPin(val);
-                                }}
-                                placeholder="***"
-                                style={{
-                                    width: '100%',
-                                    padding: '1rem',
-                                    fontSize: '2rem',
-                                    fontWeight: '800',
-                                    textAlign: 'center',
-                                    letterSpacing: '0.5rem',
-                                    border: '2px solid var(--border-light)',
-                                    borderRadius: '16px',
-                                    outline: 'none',
-                                    color: 'var(--text-dark)',
-                                    background: '#F9FAFB',
-                                    transition: 'border-color 0.2s'
-                                }}
-                                onFocus={(e) => e.target.style.borderColor = 'var(--text-dark)'}
-                                onBlur={(e) => e.target.style.borderColor = 'var(--border-light)'}
-                            />
+                        <div style={{ marginBottom: '1.5rem', display: 'flex', gap: '1rem' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-light)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    PIN
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    maxLength={3}
+                                    value={relayPin}
+                                    onChange={(e) => {
+                                        const val = e.target.value.replace(/\D/g, '');
+                                        if (val.length <= 3) setRelayPin(val);
+                                    }}
+                                    placeholder="***"
+                                    style={{
+                                        width: '100%', padding: '1rem', fontSize: '1.5rem', fontWeight: '800', textAlign: 'center',
+                                        letterSpacing: '0.5rem', border: '2px solid var(--border-light)', borderRadius: '16px',
+                                        outline: 'none', color: 'var(--text-dark)', background: '#F9FAFB',
+                                        transition: 'border-color 0.2s'
+                                    }}
+                                    onFocus={(e) => e.target.style.borderColor = 'var(--text-dark)'}
+                                    onBlur={(e) => e.target.style.borderColor = 'var(--border-light)'}
+                                />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-light)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Kilometraje
+                                </label>
+                                <input
+                                    type="number"
+                                    value={relayMileage}
+                                    onChange={(e) => setRelayMileage(e.target.value)}
+                                    placeholder="Ej: 120500"
+                                    style={{
+                                        width: '100%', padding: '1rem', fontSize: '1rem', fontWeight: '700', textAlign: 'center',
+                                        border: '2px solid var(--border-light)', borderRadius: '16px',
+                                        outline: 'none', color: 'var(--text-dark)', background: '#F9FAFB',
+                                        transition: 'border-color 0.2s'
+                                    }}
+                                    onFocus={(e) => e.target.style.borderColor = 'var(--text-dark)'}
+                                    onBlur={(e) => e.target.style.borderColor = 'var(--border-light)'}
+                                />
+                            </div>
                         </div>
 
                         <button
                             onClick={handleConfirmRelay}
-                            disabled={relaying || relayPin.length !== 3}
+                            disabled={relaying || relayPin.length !== 3 || !relayMileage}
                             style={{
                                 width: '100%',
                                 background: relayPin.length === 3 ? 'var(--text-dark)' : '#E5E7EB',
