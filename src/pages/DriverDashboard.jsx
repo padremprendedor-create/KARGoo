@@ -4,6 +4,8 @@ import { MapPin, Plus, Truck, Clock, ChevronRight, Menu, Bell, Camera, CheckCirc
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 import SidebarDrawer from '../components/SidebarDrawer';
+import CameraCapture from '../components/CameraCapture';
+import PhotoConfirmModal from '../components/PhotoConfirmModal';
 import { supabase } from '../supabaseClient';
 
 const DriverDashboard = () => {
@@ -230,24 +232,45 @@ const DriverDashboard = () => {
         }
     };
 
-    // Upload CHEQUEO or IPERC photo
-    const handleDailyPhotoUpload = async (type) => {
+    // Daily check cameras state
+    const [showCamera, setShowCamera] = useState(false);
+    const [cameraType, setCameraType] = useState(null); // 'chequeo' or 'iperc'
+    const [pendingPhoto, setPendingPhoto] = useState(null);
+
+    const handlePhotoCaptured = (imageData) => {
+        setPendingPhoto(imageData);
+        setShowCamera(false);
+    };
+
+    const handleConfirmDailyPhoto = async () => {
+        if (!pendingPhoto || !cameraType) return;
+
+        const type = cameraType;
+        const base64Data = pendingPhoto;
+
+        // Reset states
+        setPendingPhoto(null);
+        setCameraType(null);
+
         const setter = type === 'chequeo' ? setUploadingChequeo : setUploadingIperc;
         setter(true);
+
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
-            const fileRef = type === 'chequeo' ? chequeoFileRef : ipercFileRef;
-            const file = fileRef.current?.files?.[0];
-            if (!file) return;
+            if (!user) throw new Error("Usuario no autenticado");
 
-            const ext = file.name.split('.').pop();
+            // Convert base64 to Blob for upload
+            const response = await fetch(base64Data);
+            const blob = await response.blob();
+            const ext = blob.type.split('/')[1] || 'jpg';
+
             const todayKey = new Date().toISOString().slice(0, 10);
             const filePath = `${type}/${user.id}/${todayKey}_${Date.now()}.${ext}`;
+
             const { error: uploadError } = await supabase.storage
                 .from('trip-photos')
-                .upload(filePath, file);
-            if (uploadError) throw uploadError;
+                .upload(filePath, blob);
+            if (uploadError) throw new Error(`Almacenamiento: ${uploadError.message}`);
 
             // Save record to DB with timestamp
             const now = new Date();
@@ -259,13 +282,13 @@ const DriverDashboard = () => {
                     photo_url: filePath,
                     uploaded_at: now.toISOString()
                 });
-            if (dbError) console.error('Error saving daily check:', dbError);
+            if (dbError) throw new Error(`Base de datos: ${dbError.message}`);
 
             await supabase.from('driver_interactions').insert({
                 driver_id: user.id,
                 interaction_type: 'photo',
                 description: `Subió foto de ${type.toUpperCase()}`
-            });
+            }).catch(() => { }); // Catch interaction inserts silently to avoid blocking
 
             if (type === 'chequeo') {
                 setChequeoDoneToday(true);
@@ -278,7 +301,7 @@ const DriverDashboard = () => {
             alert(`Foto de ${type.toUpperCase()} subida correctamente.`);
         } catch (err) {
             console.error(`Error uploading ${type}:`, err);
-            alert(`Error al subir foto de ${type.toUpperCase()}.`);
+            alert(`Error al subir foto de ${type.toUpperCase()}:\n${err.message}`);
         } finally {
             setter(false);
         }
@@ -548,12 +571,11 @@ const DriverDashboard = () => {
                     </h1>
                     {/* CHEQUEO / IPERC buttons */}
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        {/* Hidden file inputs */}
-                        <input type="file" accept="image/*" capture="environment" ref={chequeoFileRef} style={{ display: 'none' }} onChange={() => handleDailyPhotoUpload('chequeo')} />
-                        <input type="file" accept="image/*" capture="environment" ref={ipercFileRef} style={{ display: 'none' }} onChange={() => handleDailyPhotoUpload('iperc')} />
-
                         <button
-                            onClick={() => chequeoFileRef.current?.click()}
+                            onClick={() => {
+                                setCameraType('chequeo');
+                                setShowCamera(true);
+                            }}
                             disabled={uploadingChequeo || chequeoDoneToday}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '0.35rem',
@@ -575,7 +597,10 @@ const DriverDashboard = () => {
                         </button>
 
                         <button
-                            onClick={() => ipercFileRef.current?.click()}
+                            onClick={() => {
+                                setCameraType('iperc');
+                                setShowCamera(true);
+                            }}
                             disabled={uploadingIperc || ipercDoneToday}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '0.35rem',
@@ -1149,7 +1174,6 @@ const DriverDashboard = () => {
                             <input
                                 type="file"
                                 accept="image/*"
-                                capture="environment"
                                 ref={maintenanceFileRef}
                                 onChange={handleMaintenancePhotoChange}
                                 style={{ display: 'none' }}
@@ -1410,7 +1434,7 @@ const DriverDashboard = () => {
                                 Foto de Boleta o Factura
                             </label>
                             <input
-                                type="file" accept="image/*" capture="environment"
+                                type="file" accept="image/*"
                                 ref={fuelFileRef} onChange={handleFuelPhotoChange} style={{ display: 'none' }}
                             />
                             {fuelPhotoPreview ? (
@@ -1545,7 +1569,7 @@ const DriverDashboard = () => {
                                 Evidencia Fotográfica
                             </label>
                             <input
-                                type="file" accept="image/*" capture="environment"
+                                type="file" accept="image/*"
                                 ref={alertFileRef} onChange={handleAlertPhotoChange} style={{ display: 'none' }}
                             />
                             {alertPhotoPreview ? (

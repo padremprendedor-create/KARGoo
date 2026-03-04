@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, RefreshCw, Sun, Moon } from 'lucide-react';
 import AdminLayout from '../layouts/AdminLayout';
 import { supabase } from '../supabaseClient';
 
@@ -12,12 +12,34 @@ const COLORS = {
     fin: '#3B82F6',
 };
 
+// ── Night shift mock data (for validation) ─────────────────────────
+const USE_MOCK = false;
+const NIGHT_MOCK_DATA = [
+    {
+        id: 1, name: 'Junior', shiftStart: '18:00', shiftEnd: '05:00',
+        activities: [
+            { type: 'inactivo', start: '18:00', end: '18:30' },
+            { type: 'viaje', start: '18:30', end: '22:00' },
+            { type: 'mantenimiento', start: '22:00', end: '23:00', detail: 'Revisión de luces' },
+            { type: 'viaje', start: '23:00', end: '05:00' },
+        ],
+    },
+    {
+        id: 2, name: 'Brian', shiftStart: '19:00', shiftEnd: '06:30',
+        activities: [
+            { type: 'viaje', start: '19:00', end: '01:00' },
+            { type: 'inactivo', start: '01:00', end: '02:00' },
+            { type: 'viaje', start: '02:00', end: '06:30' },
+        ],
+    },
+];
+
 // ── Helpers ────────────────────────────────────────────────────────
 const getShiftConfig = (shift) => {
     if (shift === 'afternoon') {
-        return { startHour: 18, endHour: 30, rangeHours: 12, isAfternoon: true };
+        return { startHour: 18, endHour: 30, rangeHours: 12, isAfternoon: true, shiftStartStr: '18:00' };
     }
-    return { startHour: 6, endHour: 18, rangeHours: 12, isAfternoon: false };
+    return { startHour: 6, endHour: 18, rangeHours: 12, isAfternoon: false, shiftStartStr: '06:00' };
 };
 
 const getHoursArray = (startHour, rangeHours) => {
@@ -28,12 +50,33 @@ const getHoursArray = (startHour, rangeHours) => {
     });
 };
 
-const timeToDecimal = (t, isAfternoon) => {
+const timeToDecimal = (timeStr) => {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours + minutes / 60;
+};
+
+const calculatePosition = (timeStr, shiftStartStr) => {
+    let time = timeToDecimal(timeStr);
+    let start = timeToDecimal(shiftStartStr);
+    if (time < start) time += 24;
+    return ((time - start) / 12) * 100;
+};
+
+const getActivityStyles = (activityStart, activityEnd, shiftStart) => {
+    const leftPosition = calculatePosition(activityStart, shiftStart);
+    const endPosition = calculatePosition(activityEnd, shiftStart);
+    const widthPercentage = endPosition - leftPosition;
+    return {
+        left: `${Math.max(0, leftPosition)}%`,
+        width: `${Math.min(100 - leftPosition, widthPercentage)}%`,
+    };
+};
+
+// Legacy helpers (still used by some sub-components)
+const timeToDecimalLegacy = (t, isAfternoon) => {
     const [h, m] = t.split(':').map(Number);
     let decimal = h + m / 60;
-    if (isAfternoon && decimal < 18) {
-        decimal += 24;
-    }
+    if (isAfternoon && decimal < 18) decimal += 24;
     return decimal;
 };
 
@@ -125,7 +168,7 @@ const buildDriverTimeline = (trips, activities, shiftConfig, dayStartStr, dayEnd
     });
 
     // Sort by start time relative to shift
-    segments.sort((a, b) => timeToDecimal(a.start, shiftConfig.isAfternoon) - timeToDecimal(b.start, shiftConfig.isAfternoon));
+    segments.sort((a, b) => timeToDecimalLegacy(a.start, shiftConfig.isAfternoon) - timeToDecimalLegacy(b.start, shiftConfig.isAfternoon));
 
     return segments;
 };
@@ -213,11 +256,10 @@ const MaintenancePopup = ({ activity }) => {
 const ActivityBlock = ({ activity, shiftConfig }) => {
     const [hover, setHover] = useState(false);
 
-    const startDec = clamp(timeToDecimal(activity.start, shiftConfig.isAfternoon), shiftConfig.startHour, shiftConfig.endHour);
-    const endDec = clamp(timeToDecimal(activity.end, shiftConfig.isAfternoon), shiftConfig.startHour, shiftConfig.endHour);
-    const leftPct = pct(startDec, shiftConfig.startHour, shiftConfig.rangeHours);
-    let widthPct = pct(endDec, shiftConfig.startHour, shiftConfig.rangeHours) - leftPct;
+    const styles = getActivityStyles(activity.start, activity.end, shiftConfig.shiftStartStr);
 
+    // Parse width percentage to hide effectively 0 blocks
+    const widthPct = parseFloat(styles.width);
     if (widthPct <= 0) return null;
 
     const isMaint = activity.type === 'mantenimiento';
@@ -233,36 +275,38 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
     }
 
     return (
-        <div
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
-            title={
-                isMaint
-                    ? `Mantenimiento: ${activity.reason || 'Sin motivo'} | ${activity.start} - ${activity.end} (${durationStr})`
-                    : `${activity.type === 'viaje' ? 'En Viaje' : 'Inactivo'}: ${activity.start} - ${activity.end} (${durationStr})`
-            }
-            style={{
-                position: 'absolute',
-                left: `${leftPct}%`,
-                width: `${widthPct}%`,
-                minWidth: '4px',
-                height: '100%',
-                background: COLORS[activity.type] || '#D1D5DB',
-                borderRadius: '4px',
-                cursor: isMaint ? 'pointer' : 'default',
-                transition: 'filter 0.15s ease',
-                filter: hover && isMaint ? 'brightness(1.1)' : 'none',
-                zIndex: activity.type === 'viaje' ? 4 : isMaint ? 3 : 1,
-            }}
-        >
-            {isMaint && hover && <MaintenancePopup activity={activity} />}
+        <>
+            <div
+                onMouseEnter={() => setHover(true)}
+                onMouseLeave={() => setHover(false)}
+                title={
+                    isMaint
+                        ? `Mantenimiento: ${activity.reason || 'Sin motivo'} | ${activity.start} - ${activity.end} (${durationStr})`
+                        : `${activity.type === 'viaje' ? 'En Viaje' : 'Inactivo'}: ${activity.start} - ${activity.end} (${durationStr})`
+                }
+                style={{
+                    position: 'absolute',
+                    left: styles.left,
+                    width: styles.width,
+                    minWidth: '4px',
+                    height: '100%',
+                    background: COLORS[activity.type] || '#D1D5DB',
+                    borderRadius: '4px',
+                    cursor: isMaint ? 'pointer' : 'default',
+                    transition: 'filter 0.15s ease',
+                    filter: hover && isMaint ? 'brightness(1.1)' : 'none',
+                    zIndex: activity.type === 'viaje' ? 10 : isMaint ? 3 : 1,
+                }}
+            >
+                {isMaint && hover && <MaintenancePopup activity={activity} />}
+            </div>
 
             {/* Explicit duration text */}
             {widthPct >= 5 && durationStr && (
                 <div style={{
                     position: 'absolute',
                     top: '50%',
-                    left: '50%',
+                    left: `${parseFloat(styles.left) + widthPct / 2}%`,
                     transform: 'translate(-50%, -50%)',
                     color: activity.type === 'inactivo' ? '#6B7280' : '#fff',
                     fontSize: '0.8rem',
@@ -271,20 +315,20 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
                     whiteSpace: 'nowrap',
                     pointerEvents: 'none',
                     textShadow: activity.type === 'inactivo' ? 'none' : '0 1px 3px rgba(0,0,0,0.5)',
-                    opacity: 0.95
+                    opacity: 0.95,
+                    zIndex: 12
                 }}>
                     {durationStr}
                 </div>
             )}
-        </div>
+        </>
     );
 };
 
 const InteractionMark = ({ interaction, shiftConfig }) => {
     const [hover, setHover] = useState(false);
     const localTime = timestampToLocal(interaction.timestamp);
-    const timeDec = clamp(timeToDecimal(localTime, shiftConfig.isAfternoon), shiftConfig.startHour, shiftConfig.endHour);
-    const leftPct = pct(timeDec, shiftConfig.startHour, shiftConfig.rangeHours);
+    const leftPct = calculatePosition(localTime, shiftConfig.shiftStartStr);
 
     if (leftPct < 0 || leftPct > 100) return null;
 
@@ -299,7 +343,7 @@ const InteractionMark = ({ interaction, shiftConfig }) => {
                 width: '3px',
                 height: '100%',
                 background: '#EF4444',
-                zIndex: 6,
+                zIndex: 11,
                 transform: 'translateX(-50%)',
                 cursor: 'pointer'
             }}
@@ -355,7 +399,7 @@ const ShiftMarker = ({ label, timeDec, isOvertime, shiftConfig, isStaggered }) =
                 style={{
                     position: 'absolute',
                     right: 0,
-                    top: '-22px',
+                    bottom: '-38px',
                     background: '#1F2937',
                     color: '#fff',
                     fontSize: '0.65rem',
@@ -377,7 +421,7 @@ const ShiftMarker = ({ label, timeDec, isOvertime, shiftConfig, isStaggered }) =
             style={{
                 position: 'absolute',
                 left: `${leftPct}%`,
-                top: isStaggered ? '-48px' : '-24px',
+                bottom: isStaggered ? '-58px' : '-38px',
                 transform: 'translateX(-50%)',
                 background: COLORS.inicio,
                 color: '#fff',
@@ -397,11 +441,11 @@ const ShiftMarker = ({ label, timeDec, isOvertime, shiftConfig, isStaggered }) =
 const DriverRow = ({ driver, segments, interactions, shiftConfig }) => {
     const getShiftBounds = (segs, ints) => {
         if (segs.length === 0 && (!ints || ints.length === 0)) return null;
-        let starts = segs.map((s) => timeToDecimal(s.start, shiftConfig.isAfternoon));
-        let ends = segs.map((s) => timeToDecimal(s.end, shiftConfig.isAfternoon));
+        let starts = segs.map((s) => timeToDecimalLegacy(s.start, shiftConfig.isAfternoon));
+        let ends = segs.map((s) => timeToDecimalLegacy(s.end, shiftConfig.isAfternoon));
 
         if (ints && ints.length > 0) {
-            const intTimes = ints.map(i => timeToDecimal(timestampToLocal(i.timestamp), shiftConfig.isAfternoon));
+            const intTimes = ints.map(i => timeToDecimalLegacy(timestampToLocal(i.timestamp), shiftConfig.isAfternoon));
             starts = starts.concat(intTimes);
             ends = ends.concat(intTimes);
         }
@@ -432,7 +476,7 @@ const DriverRow = ({ driver, segments, interactions, shiftConfig }) => {
                     >
                         {driver.full_name}
                     </div>
-                    <div style={{ flex: 1, position: 'relative', paddingTop: '28px' }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
                         <div
                             style={{
                                 position: 'relative',
@@ -440,8 +484,25 @@ const DriverRow = ({ driver, segments, interactions, shiftConfig }) => {
                                 height: '32px',
                                 background: '#F3F4F6',
                                 borderRadius: '6px',
+                                overflow: 'hidden',
                             }}
-                        />
+                        >
+                            {/* 15-minute guide lines */}
+                            {Array.from({ length: 48 }, (_, i) => (
+                                <div
+                                    key={`guide-empty-${i}`}
+                                    style={{
+                                        position: 'absolute',
+                                        left: `${(i / 48) * 100}%`,
+                                        top: 0,
+                                        height: '100%',
+                                        borderLeft: i > 0 ? '1px solid rgba(209,213,219,0.3)' : 'none',
+                                        zIndex: 0,
+                                        pointerEvents: 'none',
+                                    }}
+                                />
+                            ))}
+                        </div>
                         {/* Time axis */}
                         <div style={{ position: 'relative', width: '100%', height: '20px', marginTop: '4px' }}>
                             {HOURS.map((label, i) => (
@@ -485,15 +546,7 @@ const DriverRow = ({ driver, segments, interactions, shiftConfig }) => {
                     {driver.full_name}
                 </div>
 
-                <div style={{ flex: 1, position: 'relative', paddingTop: '28px' }}>
-                    <ShiftMarker label="Inicio" timeDec={shiftStartDec} shiftConfig={shiftConfig} />
-                    <ShiftMarker
-                        label="Fin"
-                        timeDec={shiftEndDec}
-                        isOvertime={isOvertime}
-                        shiftConfig={shiftConfig}
-                        isStaggered={!isOvertime && (shiftEndDec - shiftStartDec) < 0.5}
-                    />
+                <div style={{ flex: 1, position: 'relative', paddingBottom: '44px' }}>
 
                     <div
                         style={{
@@ -505,6 +558,22 @@ const DriverRow = ({ driver, segments, interactions, shiftConfig }) => {
                             overflow: 'visible',
                         }}
                     >
+                        {/* 15-minute guide lines */}
+                        {Array.from({ length: 48 }, (_, i) => (
+                            <div
+                                key={`guide-${i}`}
+                                style={{
+                                    position: 'absolute',
+                                    left: `${(i / 48) * 100}%`,
+                                    top: 0,
+                                    height: '100%',
+                                    borderLeft: i > 0 ? '1px solid rgba(209,213,219,0.3)' : 'none',
+                                    zIndex: 0,
+                                    pointerEvents: 'none',
+                                }}
+                            />
+                        ))}
+
                         {segments.map((act, i) => (
                             <ActivityBlock key={i} activity={act} shiftConfig={shiftConfig} />
                         ))}
@@ -555,6 +624,16 @@ const DriverRow = ({ driver, segments, interactions, shiftConfig }) => {
                                 }}
                             />
                         )}
+
+                        {/* Shift markers (below the track) */}
+                        <ShiftMarker label="Inicio" timeDec={shiftStartDec} shiftConfig={shiftConfig} />
+                        <ShiftMarker
+                            label="Fin"
+                            timeDec={shiftEndDec}
+                            isOvertime={isOvertime}
+                            shiftConfig={shiftConfig}
+                            isStaggered={!isOvertime && (shiftEndDec - shiftStartDec) < 0.5}
+                        />
                     </div>
 
                     {/* Time axis */}
@@ -613,6 +692,7 @@ const TimelineView = () => {
     const [loading, setLoading] = useState(true);
 
     const shiftConfig = getShiftConfig(selectedShift);
+    const isDark = selectedShift === 'afternoon';
 
     const handlePrevDay = () => {
         const d = new Date(selectedDate + 'T12:00:00');
@@ -624,6 +704,17 @@ const TimelineView = () => {
         const d = new Date(selectedDate + 'T12:00:00');
         d.setDate(d.getDate() + 1);
         setSelectedDate(d.toISOString().split('T')[0]);
+    };
+
+    const handleToday = () => {
+        setSelectedDate(getLimaDate());
+        // Detect shift from current Lima hour
+        const now = new Date();
+        const limaHour = parseInt(
+            new Intl.DateTimeFormat('en-US', { timeZone: 'America/Lima', hour12: false, hour: '2-digit' }).format(now),
+            10
+        );
+        setSelectedShift(limaHour >= 6 && limaHour < 18 ? 'morning' : 'afternoon');
     };
 
     const getDateRange = useCallback(() => {
@@ -733,16 +824,50 @@ const TimelineView = () => {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+                    {/* Sun/Moon Toggle Switch */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-dark)', whiteSpace: 'nowrap' }}>Filtrar por Turno:</label>
-                        <select
-                            value={selectedShift}
-                            onChange={(e) => setSelectedShift(e.target.value)}
-                            style={{ padding: '0.55rem 2rem 0.55rem 0.85rem', borderRadius: '10px', border: '1px solid #E5E7EB', background: 'white', fontSize: '0.85rem', cursor: 'pointer', outline: 'none', color: 'var(--text-dark)', fontWeight: 500 }}
+                        <div
+                            onClick={() => setSelectedShift(selectedShift === 'morning' ? 'afternoon' : 'morning')}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                position: 'relative',
+                                width: '64px',
+                                height: '32px',
+                                borderRadius: '9999px',
+                                cursor: 'pointer',
+                                background: isDark ? '#334155' : '#E0E7FF',
+                                transition: 'background 0.3s ease',
+                                padding: '4px',
+                                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)'
+                            }}
+                            title={isDark ? "Cambiar a Turno Mañana" : "Cambiar a Turno Noche"}
                         >
-                            <option value="morning">Mañana (6:00 - 18:00)</option>
-                            <option value="afternoon">Tarde (18:00 - 06:00)</option>
-                        </select>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '50%',
+                                    background: isDark ? '#1E293B' : '#FFFFFF',
+                                    position: 'absolute',
+                                    left: isDark ? '36px' : '4px',
+                                    transition: 'all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1)',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                                }}
+                            >
+                                {isDark ? (
+                                    <Moon size={14} color="#60A5FA" />
+                                ) : (
+                                    <Sun size={14} color="#F59E0B" />
+                                )}
+                            </div>
+                        </div>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-dark)' }}>
+                            {isDark ? 'Turno Noche (18:00 - 06:00)' : 'Turno Mañana (06:00 - 18:00)'}
+                        </span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -772,6 +897,30 @@ const TimelineView = () => {
                             >
                                 <ChevronRight size={20} />
                             </button>
+                            <button
+                                onClick={handleToday}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    padding: '0.45rem 0.85rem',
+                                    borderRadius: '20px',
+                                    border: '1px solid #E5E7EB',
+                                    background: 'linear-gradient(135deg, #3B82F6, #2563EB)',
+                                    color: 'white',
+                                    cursor: 'pointer',
+                                    fontWeight: 600,
+                                    fontSize: '0.8rem',
+                                    transition: 'all 0.2s',
+                                    boxShadow: '0 2px 6px rgba(59,130,246,0.35)',
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59,130,246,0.45)'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 2px 6px rgba(59,130,246,0.35)'; }}
+                                title="Ir al día de hoy y detectar turno automáticamente"
+                            >
+                                <RefreshCw size={14} />
+                                HOY
+                            </button>
                         </div>
                     </div>
 
@@ -783,15 +932,38 @@ const TimelineView = () => {
                     </div>
                 </div>
 
-                <div style={{ background: 'white', borderRadius: '16px', boxShadow: 'var(--shadow-md)', padding: '1.75rem 2rem 1.25rem', overflowX: 'auto' }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '16px',
+                    boxShadow: 'var(--shadow-md)',
+                    padding: '1.75rem 2rem 1.25rem',
+                    overflowX: 'auto',
+                    transition: 'background 0.3s ease'
+                }}>
                     {loading ? (
                         <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-light)' }}>Cargando datos del timeline...</div>
-                    ) : drivers.length === 0 ? (
+                    ) : drivers.length === 0 && !USE_MOCK ? (
                         <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-light)' }}>No hay conductores registrados.</div>
                     ) : (
                         <div style={{ minWidth: '700px' }}>
                             {(() => {
                                 const { dayStart, dayEnd } = getDateRange();
+
+                                if (USE_MOCK && isDark) {
+                                    return NIGHT_MOCK_DATA.map((driverData) => {
+                                        // Convert mock activities to segments
+                                        const segments = driverData.activities.map(act => ({
+                                            type: act.type,
+                                            start: act.start,
+                                            end: act.end,
+                                            reason: act.detail,
+                                            tripStatus: act.type === 'viaje' ? 'completed' : null,
+                                        }));
+                                        const mockDriver = { full_name: driverData.name, id: driverData.id };
+                                        return <DriverRow key={driverData.id} driver={mockDriver} segments={segments} interactions={[]} shiftConfig={shiftConfig} />;
+                                    });
+                                }
+
                                 return drivers.map((driver) => {
                                     const driverTrips = tripsMap[driver.id] || [];
                                     const driverActs = activitiesMap[driver.id] || [];

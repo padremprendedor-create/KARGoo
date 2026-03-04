@@ -149,9 +149,7 @@ const NewTripFlow = () => {
     };
 
     const removeContainer = (index) => {
-        if (containers.length > 1) {
-            setContainers(containers.filter((_, i) => i !== index));
-        }
+        setContainers(containers.filter((_, i) => i !== index));
     };
 
     const updateContainer = (index, field, value) => {
@@ -193,7 +191,7 @@ const NewTripFlow = () => {
 
     const canProceedStep1 = vehiclePlate.trim() && kmStart.trim() && serviceType && selectedClientId;
     const canProceedStep2 = origin && destination && origin !== destination;
-    const canProceedStep3 = containers.length > 0 && containers.every(c => c.number.trim().length >= 4) && cargoType;
+    const canProceedStep3 = cargoType && (containers.length === 0 || containers.every(c => c.number.trim().length >= 4));
 
     // Service type config
     const serviceTypes = [
@@ -793,14 +791,12 @@ const NewTripFlow = () => {
                                         <Package size={14} style={{ display: 'inline', marginRight: '0.25rem', verticalAlign: 'middle' }} />
                                         Contenedor {index + 1}
                                     </span>
-                                    {containers.length > 1 && (
-                                        <button
-                                            onClick={() => removeContainer(index)}
-                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '0.25rem' }}
-                                        >
-                                            <X size={18} />
-                                        </button>
-                                    )}
+                                    <button
+                                        onClick={() => removeContainer(index)}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '0.25rem' }}
+                                    >
+                                        <X size={18} />
+                                    </button>
                                 </div>
 
                                 {/* Container Number + Camera */}
@@ -902,6 +898,13 @@ const NewTripFlow = () => {
 
                             </div>
                         ))}
+
+                        {containers.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '2rem', background: 'var(--bg-card)', borderRadius: '16px', border: '1px dashed var(--border-light)', marginBottom: '1rem' }}>
+                                <Package size={32} color="var(--text-light)" style={{ margin: '0 auto 0.5rem' }} />
+                                <p style={{ color: 'var(--text-medium)', fontSize: '0.9rem', fontWeight: '500' }}>Viaje sin contenedores asignados.</p>
+                            </div>
+                        )}
                     </div>
 
                     {containers.length < 3 && (
