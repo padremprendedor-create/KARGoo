@@ -304,8 +304,21 @@ const ActiveTrip = () => {
             return;
         }
 
-        // Log interaction
+        // Get user once for both logs
         const { data: { user } } = await supabase.auth.getUser();
+
+        // Log mileage for trip_end
+        if (trip?.vehicle_plate) {
+            const { error: mileageErr } = await supabase.from('vehicle_mileage_logs').insert({
+                vehicle_plate: trip.vehicle_plate,
+                driver_id: user?.id || null, // Fetched above
+                mileage: kmEndVal,
+                event_type: 'trip_end'
+            });
+            if (mileageErr) console.warn('Mileage log failed for trip end:', mileageErr.message);
+        }
+
+        // Log interaction
         if (user) {
             await supabase.from('driver_interactions').insert({
                 driver_id: user.id,

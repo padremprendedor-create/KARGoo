@@ -99,9 +99,18 @@ const NewTripFlow = () => {
                 .select('id')
                 .single();
 
-            if (tripError) throw tripError;
-
             const newTripId = tripData.id;
+
+            // Log mileage
+            if (kmStart) {
+                const { error: mileageErr } = await supabase.from('vehicle_mileage_logs').insert({
+                    vehicle_plate: vehiclePlate,
+                    driver_id: user.id,
+                    mileage: parseFloat(kmStart),
+                    event_type: 'trip_start'
+                });
+                if (mileageErr) console.warn('Mileage log failed for trip start:', mileageErr.message);
+            }
 
             // 2. Insert containers
             const validContainers = containers.filter(c => c.number.trim());

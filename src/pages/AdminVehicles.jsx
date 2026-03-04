@@ -5,6 +5,7 @@ import Button from '../components/ui/Button';
 import { Search, Plus, Edit2, Trash2, Truck, Hash, Calendar } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import VehicleModal from '../components/modals/VehicleModal';
+import VehicleHistoryModal from '../components/modals/VehicleHistoryModal';
 
 const AdminVehicles = () => {
     const [vehicles, setVehicles] = useState([]);
@@ -12,6 +13,9 @@ const AdminVehicles = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentVehicle, setCurrentVehicle] = useState(null);
+
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [historyVehicle, setHistoryVehicle] = useState(null);
 
     const fetchVehicles = async () => {
         setLoading(true);
@@ -45,6 +49,11 @@ const AdminVehicles = () => {
             if (error) alert('Error al eliminar');
             else fetchVehicles();
         }
+    };
+
+    const handleHistory = (vehicle) => {
+        setHistoryVehicle(vehicle);
+        setIsHistoryModalOpen(true);
     };
 
     const getStatusStyle = (status) => {
@@ -132,6 +141,9 @@ const AdminVehicles = () => {
                                             </div>
                                         </div>
                                         <div className="flex gap-2">
+                                            <button onClick={() => handleHistory(vehicle)} style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white', cursor: 'pointer', color: 'var(--text-dark)', fontSize: '0.8rem', fontWeight: '700' }}>
+                                                Historial
+                                            </button>
                                             <button onClick={() => handleEdit(vehicle)} style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #E5E7EB', background: 'white', cursor: 'pointer', color: 'var(--text-medium)' }}>
                                                 <Edit2 size={16} />
                                             </button>
@@ -180,6 +192,12 @@ const AdminVehicles = () => {
                     onClose={() => setIsModalOpen(false)}
                     vehicle={currentVehicle}
                     onSave={fetchVehicles}
+                />
+
+                <VehicleHistoryModal
+                    isOpen={isHistoryModalOpen}
+                    onClose={() => setIsHistoryModalOpen(false)}
+                    vehicle={historyVehicle}
                 />
             </div>
         </AdminLayout>
