@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronLeft, Calendar, MapPin, Package, Scale, Clock, X, ZoomIn, Plus, Trash2, Edit3, Check, Camera, FileText, AlertTriangle, Building2, ArrowUpFromLine, ArrowDownToLine, Repeat2, Image } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import CameraCapture from '../components/CameraCapture';
+import PhotoConfirmModal from '../components/PhotoConfirmModal';
 
 const TripDetails = () => {
     const { id } = useParams();
@@ -20,7 +22,8 @@ const TripDetails = () => {
     const [editDescription, setEditDescription] = useState('');
     const [newDocDescription, setNewDocDescription] = useState('');
     const [showAddForm, setShowAddForm] = useState(false);
-    const fileInputRef = useRef(null);
+    const [showCamera, setShowCamera] = useState(false);
+    const [pendingPhoto, setPendingPhoto] = useState(null);
 
     // New fields
     const [clientName, setClientName] = useState(null);
@@ -140,17 +143,24 @@ const TripDetails = () => {
     const isEditable = trip && trip.status !== 'approved';
 
     // --- Upload additional document ---
-    const handleFileSelect = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    const handlePhotoCaptured = (imageData) => {
+        setPendingPhoto(imageData);
+        setShowCamera(false);
+    };
+
+    const handleConfirmPhoto = async () => {
+        if (!pendingPhoto) return;
         setUploading(true);
         try {
+            const response = await fetch(pendingPhoto);
+            const blob = await response.blob();
+
             const fileName = `trip_${id}_additional_${Date.now()}.jpg`;
             const filePath = `additional/${fileName}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('trip-photos')
-                .upload(filePath, file, { contentType: file.type, upsert: true });
+                .upload(filePath, blob, { contentType: 'image/jpeg', upsert: true });
 
             if (uploadError) throw uploadError;
 
@@ -167,13 +177,13 @@ const TripDetails = () => {
 
             setNewDocDescription('');
             setShowAddForm(false);
+            setPendingPhoto(null);
             await fetchTrip();
         } catch (err) {
             console.error('Error uploading document:', err);
             alert('Error al subir documento: ' + err.message);
         } finally {
             setUploading(false);
-            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 
@@ -744,16 +754,8 @@ const TripDetails = () => {
                                 onFocus={(e) => e.target.style.borderColor = 'var(--primary-red)'}
                                 onBlur={(e) => e.target.style.borderColor = 'var(--border-light)'}
                             />
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                capture="environment"
-                                onChange={handleFileSelect}
-                                style={{ display: 'none' }}
-                            />
                             <button
-                                onClick={() => fileInputRef.current?.click()}
+                                onClick={() => setShowCamera(true)}
                                 disabled={uploading}
                                 style={{
                                     width: '100%',
@@ -1016,6 +1018,33 @@ const TripDetails = () => {
                         }}
                     />
                 </div>
+            )}
+
+            {/* In-App Camera */}
+            {showCamera && (
+                <CameraCapture
+                    onCapture={handlePhotoCaptured}
+                    onClose={() => setShowCamera(false)}
+                    overlayText="Capture el Documento Adicional"
+                />
+            )}
+
+            {/* Photo Confirmation Modal */}
+            {pendingPhoto && (
+                <PhotoConfirmModal
+                    photoSrc={pendingPhoto}
+                    title="Confirmar Documento"
+                    subtitle="Asegúrese de que el documento sea legible."
+                    confirmLabel={uploading ? 'Subiendo...' : 'Confirmar y Subir'}
+                    onConfirm={handleConfirmPhoto}
+                    onRetake={() => {
+                        setPendingPhoto(null);
+                        setShowCamera(true);
+                    }}
+                    onCancel={() => {
+                        setPendingPhoto(null);
+                    }}
+                />
             )}
         </div>
     );

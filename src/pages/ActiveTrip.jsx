@@ -4,6 +4,7 @@ import { ChevronLeft, MapPin, Truck, Camera, CheckCircle, HelpCircle, Gauge, X, 
 import { GoogleMap, useJsApiLoader, Marker, Polyline, Autocomplete } from '@react-google-maps/api';
 import Card from '../components/ui/Card';
 import PhotoConfirmModal from '../components/PhotoConfirmModal';
+import CameraCapture from '../components/CameraCapture';
 import { supabase } from '../supabaseClient';
 
 const mapContainerStyle = {
@@ -37,8 +38,8 @@ const ActiveTrip = () => {
     // Sustento photos (1-3)
     const [sustentoPhotos, setSustentoPhotos] = useState([]);
     const [uploadingSustento, setUploadingSustento] = useState(false);
-    const sustentoFileRef = useRef(null);
     const [pendingSustentoPhoto, setPendingSustentoPhoto] = useState(null); // data URL for confirmation
+    const [showCamera, setShowCamera] = useState(false);
 
     // --- Google Maps Navigation & Tracking ---
     const [currentLocation, setCurrentLocation] = useState(defaultCenter);
@@ -185,19 +186,15 @@ const ActiveTrip = () => {
     };
 
     // --- Sustento photo handlers ---
-    // Step 1: File selected → show confirmation
-    const handleSustentoFileSelect = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    // Step 1: Photo captured from in-app camera
+    const handleSustentoPhotoCaptured = (imageData) => {
         if (sustentoPhotos.length >= 3) {
             alert('Máximo 3 fotos de sustento');
+            setShowCamera(false);
             return;
         }
-        // Convert to data URL for preview
-        const reader = new FileReader();
-        reader.onload = () => setPendingSustentoPhoto(reader.result);
-        reader.readAsDataURL(file);
-        if (sustentoFileRef.current) sustentoFileRef.current.value = '';
+        setPendingSustentoPhoto(imageData);
+        setShowCamera(false);
     };
 
     // Step 2: User confirmed → upload to Supabase
@@ -721,45 +718,35 @@ const ActiveTrip = () => {
 
                         {/* Add photo button */}
                         {sustentoPhotos.length < 3 && (
-                            <>
-                                <input
-                                    ref={sustentoFileRef}
-                                    type="file"
-                                    accept="image/*"
-                                    capture="environment"
-                                    onChange={handleSustentoFileSelect}
-                                    style={{ display: 'none' }}
-                                />
-                                <button
-                                    onClick={() => sustentoFileRef.current?.click()}
-                                    disabled={uploadingSustento}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.85rem',
-                                        border: '2px dashed var(--border-light)',
-                                        borderRadius: '12px',
-                                        background: 'var(--bg-light)',
-                                        color: 'var(--text-medium)',
-                                        fontWeight: '700',
-                                        fontSize: '0.9rem',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        gap: '0.5rem',
-                                        cursor: uploadingSustento ? 'not-allowed' : 'pointer',
-                                        opacity: uploadingSustento ? 0.7 : 1,
-                                        transition: 'all 0.2s'
-                                    }}
-                                >
-                                    {uploadingSustento ? (
-                                        'Subiendo...'
-                                    ) : (
-                                        <>
-                                            <Plus size={18} /> Agregar foto de sustento
-                                        </>
-                                    )}
-                                </button>
-                            </>
+                            <button
+                                onClick={() => setShowCamera(true)}
+                                disabled={uploadingSustento}
+                                style={{
+                                    width: '100%',
+                                    padding: '0.85rem',
+                                    border: '2px dashed var(--border-light)',
+                                    borderRadius: '12px',
+                                    background: 'var(--bg-light)',
+                                    color: 'var(--text-medium)',
+                                    fontWeight: '700',
+                                    fontSize: '0.9rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.5rem',
+                                    cursor: uploadingSustento ? 'not-allowed' : 'pointer',
+                                    opacity: uploadingSustento ? 0.7 : 1,
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                {uploadingSustento ? (
+                                    'Subiendo...'
+                                ) : (
+                                    <>
+                                        <Plus size={18} /> Agregar foto de sustento
+                                    </>
+                                )}
+                            </button>
                         )}
                     </Card>
 
@@ -962,18 +949,30 @@ const ActiveTrip = () => {
             </div>
 
             {/* Sustento Photo Confirmation */}
-            {
-                pendingSustentoPhoto && (
-                    <PhotoConfirmModal
-                        photoSrc={pendingSustentoPhoto}
-                        title="Foto de Sustento"
-                        subtitle="Verifique que la foto sea legible antes de confirmar."
-                        confirmLabel={uploadingSustento ? 'Subiendo...' : 'Confirmar Foto'}
-                        onConfirm={handleSustentoConfirm}
-                        onRetake={() => { setPendingSustentoPhoto(null); sustentoFileRef.current?.click(); }}
-                    />
-                )
-            }
+            {pendingSustentoPhoto && (
+                <PhotoConfirmModal
+                    photoSrc={pendingSustentoPhoto}
+                    title="Foto de Sustento"
+                    subtitle="Verifique que la foto sea legible antes de confirmar."
+                    confirmLabel={uploadingSustento ? 'Subiendo...' : 'Confirmar Foto'}
+                    onConfirm={handleSustentoConfirm}
+                    onRetake={() => {
+                        setPendingSustentoPhoto(null);
+                        setShowCamera(true);
+                    }}
+                    onCancel={() => {
+                        setPendingSustentoPhoto(null);
+                    }}
+                />
+            )}
+
+            {showCamera && (
+                <CameraCapture
+                    onCapture={handleSustentoPhotoCaptured}
+                    onClose={() => setShowCamera(false)}
+                    overlayText="Capture el Ticket de Sustento"
+                />
+            )}
 
             {/* Relay (Relevo) Modal */}
             {showRelayModal && (

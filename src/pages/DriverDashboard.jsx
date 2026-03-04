@@ -192,11 +192,13 @@ const DriverDashboard = () => {
 
             let photoUrl = null;
             if (maintenancePhoto) {
-                const ext = maintenancePhoto.name.split('.').pop();
+                const response = await fetch(maintenancePhoto);
+                const blob = await response.blob();
+                const ext = blob.type.split('/')[1] || 'jpg';
                 const filePath = `maintenance/${user.id}/${Date.now()}.${ext}`;
                 const { error: uploadError } = await supabase.storage
                     .from('trip-photos')
-                    .upload(filePath, maintenancePhoto);
+                    .upload(filePath, blob);
                 if (uploadError) throw uploadError;
                 photoUrl = filePath;
             }
@@ -242,7 +244,7 @@ const DriverDashboard = () => {
         setShowCamera(false);
     };
 
-    const handleConfirmDailyPhoto = async () => {
+    const handleConfirmPhoto = async () => {
         if (!pendingPhoto || !cameraType) return;
 
         const type = cameraType;
@@ -252,58 +254,57 @@ const DriverDashboard = () => {
         setPendingPhoto(null);
         setCameraType(null);
 
-        const setter = type === 'chequeo' ? setUploadingChequeo : setUploadingIperc;
-        setter(true);
+        if (type === 'chequeo' || type === 'iperc') {
+            const setter = type === 'chequeo' ? setUploadingChequeo : setUploadingIperc;
+            setter(true);
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) throw new Error("Usuario no autenticado");
 
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error("Usuario no autenticado");
+                const response = await fetch(base64Data);
+                const blob = await response.blob();
+                const ext = blob.type.split('/')[1] || 'jpg';
+                const todayKey = new Date().toISOString().slice(0, 10);
+                const filePath = `${type}/${user.id}/${todayKey}_${Date.now()}.${ext}`;
 
-            // Convert base64 to Blob for upload
-            const response = await fetch(base64Data);
-            const blob = await response.blob();
-            const ext = blob.type.split('/')[1] || 'jpg';
+                const { error: uploadError } = await supabase.storage
+                    .from('trip-photos')
+                    .upload(filePath, blob);
+                if (uploadError) throw new Error(`Almacenamiento: ${uploadError.message}`);
 
-            const todayKey = new Date().toISOString().slice(0, 10);
-            const filePath = `${type}/${user.id}/${todayKey}_${Date.now()}.${ext}`;
+                const now = new Date();
+                const { error: dbError } = await supabase
+                    .from('driver_daily_checks')
+                    .insert({ driver_id: user.id, check_type: type, photo_url: filePath, uploaded_at: now.toISOString() });
+                if (dbError) throw new Error(`Base de datos: ${dbError.message}`);
 
-            const { error: uploadError } = await supabase.storage
-                .from('trip-photos')
-                .upload(filePath, blob);
-            if (uploadError) throw new Error(`Almacenamiento: ${uploadError.message}`);
+                await supabase.from('driver_interactions').insert({
+                    driver_id: user.id, interaction_type: 'photo', description: `Subió foto de ${type.toUpperCase()}`
+                }).catch(() => { });
 
-            // Save record to DB with timestamp
-            const now = new Date();
-            const { error: dbError } = await supabase
-                .from('driver_daily_checks')
-                .insert({
-                    driver_id: user.id,
-                    check_type: type,
-                    photo_url: filePath,
-                    uploaded_at: now.toISOString()
-                });
-            if (dbError) throw new Error(`Base de datos: ${dbError.message}`);
-
-            await supabase.from('driver_interactions').insert({
-                driver_id: user.id,
-                interaction_type: 'photo',
-                description: `Subió foto de ${type.toUpperCase()}`
-            }).catch(() => { }); // Catch interaction inserts silently to avoid blocking
-
-            if (type === 'chequeo') {
-                setChequeoDoneToday(true);
-                setChequeoTime(now);
-            } else {
-                setIpercDoneToday(true);
-                setIpercTime(now);
+                if (type === 'chequeo') {
+                    setChequeoDoneToday(true);
+                    setChequeoTime(now);
+                } else {
+                    setIpercDoneToday(true);
+                    setIpercTime(now);
+                }
+                alert(`Foto de ${type.toUpperCase()} subida correctamente.`);
+            } catch (err) {
+                console.error(`Error uploading ${type}:`, err);
+                alert(`Error al subir foto de ${type.toUpperCase()}:\n${err.message}`);
+            } finally {
+                setter(false);
             }
-
-            alert(`Foto de ${type.toUpperCase()} subida correctamente.`);
-        } catch (err) {
-            console.error(`Error uploading ${type}:`, err);
-            alert(`Error al subir foto de ${type.toUpperCase()}:\n${err.message}`);
-        } finally {
-            setter(false);
+        } else if (type === 'maintenance') {
+            setMaintenancePhoto(base64Data);
+            setMaintenancePhotoPreview(base64Data);
+        } else if (type === 'fuel') {
+            setFuelPhoto(base64Data);
+            setFuelPhotoPreview(base64Data);
+        } else if (type === 'alert') {
+            setAlertPhoto(base64Data);
+            setAlertPhotoPreview(base64Data);
         }
     };
 
@@ -395,11 +396,13 @@ const DriverDashboard = () => {
             if (!user) throw new Error("No autenticado");
 
             // Subir foto
-            const ext = fuelPhoto.name.split('.').pop();
+            const response = await fetch(fuelPhoto);
+            const blob = await response.blob();
+            const ext = blob.type.split('/')[1] || 'jpg';
             const filePath = `fuel_receipts/${user.id}/${Date.now()}.${ext}`;
             const { error: uploadError } = await supabase.storage
                 .from('trip-photos')
-                .upload(filePath, fuelPhoto);
+                .upload(filePath, blob);
 
             if (uploadError) throw uploadError;
 
@@ -459,11 +462,13 @@ const DriverDashboard = () => {
             if (!user) throw new Error("No autenticado");
 
             // Subir foto
-            const ext = alertPhoto.name.split('.').pop();
+            const response = await fetch(alertPhoto);
+            const blob = await response.blob();
+            const ext = blob.type.split('/')[1] || 'jpg';
             const filePath = `alerts/${user.id}/${Date.now()}.${ext}`;
             const { error: uploadError } = await supabase.storage
                 .from('trip-photos')
-                .upload(filePath, alertPhoto);
+                .upload(filePath, blob);
 
             if (uploadError) throw uploadError;
 
@@ -1171,13 +1176,6 @@ const DriverDashboard = () => {
                             }}>
                                 Foto de evidencia
                             </label>
-                            <input
-                                type="file"
-                                accept="image/*"
-                                ref={maintenanceFileRef}
-                                onChange={handleMaintenancePhotoChange}
-                                style={{ display: 'none' }}
-                            />
                             {maintenancePhotoPreview ? (
                                 <div style={{ position: 'relative' }}>
                                     <img
@@ -1193,7 +1191,6 @@ const DriverDashboard = () => {
                                         onClick={() => {
                                             setMaintenancePhoto(null);
                                             setMaintenancePhotoPreview(null);
-                                            if (maintenanceFileRef.current) maintenanceFileRef.current.value = '';
                                         }}
                                         style={{
                                             position: 'absolute', top: '8px', right: '8px',
@@ -1208,7 +1205,10 @@ const DriverDashboard = () => {
                                 </div>
                             ) : (
                                 <button
-                                    onClick={() => maintenanceFileRef.current?.click()}
+                                    onClick={() => {
+                                        setCameraType('maintenance');
+                                        setShowCamera(true);
+                                    }}
                                     style={{
                                         width: '100%', padding: '2rem',
                                         borderRadius: '12px',
@@ -1433,17 +1433,12 @@ const DriverDashboard = () => {
                             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#374151', marginBottom: '0.5rem', marginTop: '1.25rem' }}>
                                 Foto de Boleta o Factura
                             </label>
-                            <input
-                                type="file" accept="image/*"
-                                ref={fuelFileRef} onChange={handleFuelPhotoChange} style={{ display: 'none' }}
-                            />
                             {fuelPhotoPreview ? (
                                 <div style={{ position: 'relative' }}>
                                     <img src={fuelPhotoPreview} alt="Boleta" style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: '12px', border: '2px solid #0284C7' }} />
                                     <button
                                         onClick={() => {
                                             setFuelPhoto(null); setFuelPhotoPreview(null);
-                                            if (fuelFileRef.current) fuelFileRef.current.value = '';
                                         }}
                                         style={{
                                             position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', border: 'none',
@@ -1456,7 +1451,10 @@ const DriverDashboard = () => {
                                 </div>
                             ) : (
                                 <button
-                                    onClick={() => fuelFileRef.current?.click()}
+                                    onClick={() => {
+                                        setCameraType('fuel');
+                                        setShowCamera(true);
+                                    }}
                                     style={{
                                         width: '100%', padding: '2rem', borderRadius: '12px', border: '2px dashed #CBD5E1',
                                         background: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -1568,17 +1566,12 @@ const DriverDashboard = () => {
                             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#374151', marginBottom: '0.5rem', marginTop: '1.25rem' }}>
                                 Evidencia Fotográfica
                             </label>
-                            <input
-                                type="file" accept="image/*"
-                                ref={alertFileRef} onChange={handleAlertPhotoChange} style={{ display: 'none' }}
-                            />
                             {alertPhotoPreview ? (
                                 <div style={{ position: 'relative' }}>
                                     <img src={alertPhotoPreview} alt="Evidencia de Alerta" style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: '12px', border: '2px solid #DC2626' }} />
                                     <button
                                         onClick={() => {
                                             setAlertPhoto(null); setAlertPhotoPreview(null);
-                                            if (alertFileRef.current) alertFileRef.current.value = '';
                                         }}
                                         style={{
                                             position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.6)', border: 'none',
@@ -1591,7 +1584,10 @@ const DriverDashboard = () => {
                                 </div>
                             ) : (
                                 <button
-                                    onClick={() => alertFileRef.current?.click()}
+                                    onClick={() => {
+                                        setCameraType('alert');
+                                        setShowCamera(true);
+                                    }}
                                     style={{
                                         width: '100%', padding: '2rem', borderRadius: '12px', border: '2px dashed #FCA5A5',
                                         background: '#FEF2F2', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -1633,6 +1629,44 @@ const DriverDashboard = () => {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* In-App Camera for Everything */}
+            {showCamera && (
+                <CameraCapture
+                    onCapture={handlePhotoCaptured}
+                    onClose={() => {
+                        setShowCamera(false);
+                        setCameraType(null);
+                    }}
+                    overlayText={
+                        cameraType === 'chequeo' ? 'Capture Foto del Vehículo' :
+                            cameraType === 'iperc' ? 'Capture Evidencia de IPERC' :
+                                cameraType === 'maintenance' ? 'Capture Evidencia del Problema' :
+                                    cameraType === 'fuel' ? 'Capture Boleta/Factura de Combustible' :
+                                        cameraType === 'alert' ? 'Capture Evidencia del Incidente' :
+                                            'Encuadre la foto'
+                    }
+                />
+            )}
+
+            {/* Photo Confirmation Modal */}
+            {pendingPhoto && (
+                <PhotoConfirmModal
+                    photoSrc={pendingPhoto}
+                    title={`Confirmar Foto`}
+                    subtitle="Asegúrese de que todo sea visible."
+                    confirmLabel="Confirmar Foto"
+                    onConfirm={handleConfirmPhoto}
+                    onRetake={() => {
+                        setPendingPhoto(null);
+                        setShowCamera(true);
+                    }}
+                    onCancel={() => {
+                        setPendingPhoto(null);
+                        setCameraType(null);
+                    }}
+                />
             )}
         </div>
     );

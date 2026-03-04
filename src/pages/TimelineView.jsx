@@ -175,7 +175,7 @@ const buildDriverTimeline = (trips, activities, shiftConfig, dayStartStr, dayEnd
 
 // ── Sub-components ──────────────────────────────────────────────────
 
-const MaintenancePopup = ({ activity }) => {
+const ActivityPopup = ({ activity }) => {
     const [imgUrl, setImgUrl] = useState(null);
 
     useEffect(() => {
@@ -202,6 +202,12 @@ const MaintenancePopup = ({ activity }) => {
         }
     }, [activity.photo_url]);
 
+    const getTitleColor = () => {
+        if (activity.type === 'inactivo') return '#9CA3AF';
+        if (activity.type === 'viaje') return '#10B981';
+        return '#F97316';
+    };
+
     return (
         <div
             style={{
@@ -224,8 +230,14 @@ const MaintenancePopup = ({ activity }) => {
                 minWidth: '150px'
             }}
         >
-            <div style={{ fontWeight: 600, color: '#F97316' }}>Mantenimiento</div>
-            <div style={{ fontWeight: 500, whiteSpace: 'pre-wrap', maxWidth: '200px' }}>{activity.reason || 'Sin motivo'}</div>
+            <div style={{ fontWeight: 600, color: getTitleColor(), textTransform: 'capitalize' }}>
+                {activity.type || 'Actividad'}
+            </div>
+            {(activity.reason || activity.type === 'mantenimiento') && (
+                <div style={{ fontWeight: 500, whiteSpace: 'pre-wrap', maxWidth: '200px' }}>
+                    {activity.reason || 'Sin motivo'}
+                </div>
+            )}
             <div style={{ color: '#9CA3AF', fontSize: '0.7rem', marginTop: '2px' }}>
                 {activity.start} – {activity.end}
             </div>
@@ -263,6 +275,7 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
     if (widthPct <= 0) return null;
 
     const isMaint = activity.type === 'mantenimiento';
+    const hasPopup = activity.photo_url || activity.reason || isMaint;
 
     // Calculate duration
     let durationStr = '';
@@ -280,8 +293,8 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
                 onMouseEnter={() => setHover(true)}
                 onMouseLeave={() => setHover(false)}
                 title={
-                    isMaint
-                        ? `Mantenimiento: ${activity.reason || 'Sin motivo'} | ${activity.start} - ${activity.end} (${durationStr})`
+                    hasPopup
+                        ? undefined
                         : `${activity.type === 'viaje' ? 'En Viaje' : 'Inactivo'}: ${activity.start} - ${activity.end} (${durationStr})`
                 }
                 style={{
@@ -292,13 +305,13 @@ const ActivityBlock = ({ activity, shiftConfig }) => {
                     height: '100%',
                     background: COLORS[activity.type] || '#D1D5DB',
                     borderRadius: '4px',
-                    cursor: isMaint ? 'pointer' : 'default',
+                    cursor: hasPopup ? 'pointer' : 'default',
                     transition: 'filter 0.15s ease',
-                    filter: hover && isMaint ? 'brightness(1.1)' : 'none',
-                    zIndex: activity.type === 'viaje' ? 10 : isMaint ? 3 : 1,
+                    filter: hover && hasPopup ? 'brightness(1.1)' : 'none',
+                    zIndex: hover ? 50 : (activity.type === 'viaje' ? 10 : isMaint ? 3 : 1),
                 }}
             >
-                {isMaint && hover && <MaintenancePopup activity={activity} />}
+                {hasPopup && hover && <ActivityPopup activity={activity} />}
             </div>
 
             {/* Explicit duration text */}
@@ -343,7 +356,7 @@ const InteractionMark = ({ interaction, shiftConfig }) => {
                 width: '3px',
                 height: '100%',
                 background: '#EF4444',
-                zIndex: 11,
+                zIndex: 51,
                 transform: 'translateX(-50%)',
                 cursor: 'pointer'
             }}
@@ -936,7 +949,7 @@ const TimelineView = () => {
                     background: 'white',
                     borderRadius: '16px',
                     boxShadow: 'var(--shadow-md)',
-                    padding: '1.75rem 2rem 1.25rem',
+                    padding: '8rem 2rem 1.25rem',
                     overflowX: 'auto',
                     transition: 'background 0.3s ease'
                 }}>

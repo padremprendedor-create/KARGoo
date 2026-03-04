@@ -4,6 +4,7 @@ import { X, Zap, RotateCcw } from 'lucide-react';
 const CameraCapture = ({ onCapture, onClose, overlayText = "Encuadre el objetivo" }) => {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
+    const streamRef = useRef(null); // Ref for cleanup
     const [stream, setStream] = useState(null);
     const [flashOn, setFlashOn] = useState(false);
     const [cameraError, setCameraError] = useState(false);
@@ -20,6 +21,7 @@ const CameraCapture = ({ onCapture, onClose, overlayText = "Encuadre el objetivo
                 audio: false
             });
             setStream(mediaStream);
+            streamRef.current = mediaStream; // Keep track for cleanup
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
             }
@@ -30,7 +32,10 @@ const CameraCapture = ({ onCapture, onClose, overlayText = "Encuadre el objetivo
     };
 
     const stopCamera = () => {
-        if (stream) {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        } else if (stream) {
             stream.getTracks().forEach(track => track.stop());
         }
     };
