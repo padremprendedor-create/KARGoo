@@ -280,7 +280,7 @@ const DriverDashboard = () => {
 
                 await supabase.from('driver_interactions').insert({
                     driver_id: user.id, interaction_type: 'photo', description: `Subió foto de ${type.toUpperCase()}`
-                }).catch(() => { });
+                });
 
                 if (type === 'chequeo') {
                     setChequeoDoneToday(true);
