@@ -148,11 +148,12 @@ const DriverDashboard = () => {
             if (error) throw error;
 
             if (user) {
-                await supabase.from('driver_interactions').insert({
+                const { error: intErr } = await supabase.from('driver_interactions').insert({
                     driver_id: user.id,
                     interaction_type: 'maintenance_end',
                     description: 'Finalizó mantenimiento'
                 });
+                if (intErr) console.warn('driver_interactions insert failed:', intErr.message);
             }
 
             alert('Mantenimiento finalizado correctamente.');
@@ -214,11 +215,12 @@ const DriverDashboard = () => {
                 }]);
             if (error) throw error;
 
-            await supabase.from('driver_interactions').insert({
+            const { error: intErrM } = await supabase.from('driver_interactions').insert({
                 driver_id: user.id,
                 interaction_type: 'maintenance_start',
                 description: 'Inició mantenimiento'
             });
+            if (intErrM) console.warn('driver_interactions insert failed:', intErrM.message);
 
             alert('Reporte de mantenimiento enviado correctamente.');
             setShowMaintenance(false);
@@ -278,9 +280,11 @@ const DriverDashboard = () => {
                     .insert({ driver_id: user.id, check_type: type, photo_url: filePath, uploaded_at: now.toISOString() });
                 if (dbError) throw new Error(`Base de datos: ${dbError.message}`);
 
-                await supabase.from('driver_interactions').insert({
+                // Non-blocking: log interaction but don't fail the chequeo if this errors
+                const { error: intErrC } = await supabase.from('driver_interactions').insert({
                     driver_id: user.id, interaction_type: 'photo', description: `Subió foto de ${type.toUpperCase()}`
                 });
+                if (intErrC) console.warn('driver_interactions insert failed:', intErrC.message);
 
                 if (type === 'chequeo') {
                     setChequeoDoneToday(true);
@@ -353,11 +357,12 @@ const DriverDashboard = () => {
 
             if (updateError) throw updateError;
 
-            await supabase.from('driver_interactions').insert({
+            const { error: intErrR } = await supabase.from('driver_interactions').insert({
                 driver_id: user.id,
                 interaction_type: 'relay',
                 description: 'Tomó relevo de viaje'
             });
+            if (intErrR) console.warn('driver_interactions insert failed:', intErrR.message);
 
             setShowRelayModal(false);
             setSelectedRelayTrip(null);
@@ -417,11 +422,12 @@ const DriverDashboard = () => {
 
             if (dbError) throw dbError;
 
-            await supabase.from('driver_interactions').insert({
+            const { error: intErrF } = await supabase.from('driver_interactions').insert({
                 driver_id: user.id,
                 interaction_type: 'fuel',
                 description: 'Registró abastecimiento'
             });
+            if (intErrF) console.warn('driver_interactions insert failed:', intErrF.message);
 
             alert('Abastecimiento registrado correctamente.');
             setShowFuelModal(false);
@@ -483,11 +489,12 @@ const DriverDashboard = () => {
 
             if (dbError) throw dbError;
 
-            await supabase.from('driver_interactions').insert({
+            const { error: intErrA } = await supabase.from('driver_interactions').insert({
                 driver_id: user.id,
                 interaction_type: 'alert',
                 description: 'Envió alerta o reporte'
             });
+            if (intErrA) console.warn('driver_interactions insert failed:', intErrA.message);
 
             alert('Alerta enviada correctamente.');
             setShowAlertModal(false);

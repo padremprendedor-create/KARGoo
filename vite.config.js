@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['logo192.png', 'logo512.png', 'vite.svg'],
+      includeAssets: ['LOGO APP.JPG', 'logo192.png', 'logo512.png', 'vite.svg'],
       manifest: {
         name: 'KARGoo - Gestión de Transportes',
         short_name: 'KARGoo',
@@ -18,19 +18,19 @@ export default defineConfig({
         display: 'standalone',
         icons: [
           {
-            src: 'logo192.png',
+            src: 'LOGO APP.JPG',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/jpeg'
           },
           {
-            src: 'logo512.png',
+            src: 'LOGO APP.JPG',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/jpeg'
           },
           {
-            src: 'logo512.png',
+            src: 'LOGO APP.JPG',
             sizes: '512x512',
-            type: 'image/png',
+            type: 'image/jpeg',
             purpose: 'any maskable'
           }
         ]
