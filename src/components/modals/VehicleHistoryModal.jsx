@@ -31,11 +31,12 @@ const VehicleHistoryModal = ({ isOpen, onClose, vehicle }) => {
             const plate = vehicle.plate;
 
             // Fetch Fuel
-            const { data: fuel } = await supabase
+            const { data: fuel, error: fuelErr } = await supabase
                 .from('fuel_records')
-                .select('*, profiles!fuel_records_driver_id_fkey(full_name)')
+                .select('*, profiles(full_name)')
                 .eq('vehicle_plate', plate)
                 .order('created_at', { ascending: false });
+            if (fuelErr) console.error('Fuel fetch error:', fuelErr);
             setFuelData(fuel || []);
 
             // Fetch Maintenance
@@ -150,89 +151,108 @@ const VehicleHistoryModal = ({ isOpen, onClose, vehicle }) => {
                         <>
                             {/* TAB: ABATASTECIMIENTO */}
                             {activeTab === 'fuel' && (
-                                <div className="space-y-4">
+                                <div>
                                     {fuelData.length === 0 ? (
                                         <p style={{ textAlign: 'center', color: 'var(--text-light)', padding: '2rem' }}>No hay registros de abastecimiento.</p>
                                     ) : (
-                                        fuelData.map(record => (
-                                            <div key={record.id} style={{ border: '1px solid #E5E7EB', borderRadius: '12px', padding: '1rem' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                                    <span style={{ fontSize: '0.85rem', color: 'var(--text-medium)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                        <Calendar size={14} /> {formatDate(record.created_at)}
-                                                    </span>
-                                                </div>
-                                                <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-                                                    <User size={16} color="var(--text-light)" />
-                                                    <strong>Conductor:</strong> {record.profiles?.full_name || 'Desconocido'}
-                                                </div>
-                                                <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-                                                    <Gauge size={16} color="var(--primary-red)" />
-                                                    <strong>Kilometraje:</strong> {record.mileage ? `${record.mileage} KM` : 'No registrado'}
-                                                </div>
-
-                                                {record.photo_url && (
-                                                    <div style={{ marginTop: '0.75rem' }}>
-                                                        <a href={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/trip-photos/${record.photo_url}`}
-                                                            target="_blank" rel="noopener noreferrer"
-                                                            style={{
-                                                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                                                                color: '#2563EB', fontSize: '0.8rem', fontWeight: '600', textDecoration: 'none'
-                                                            }}>
-                                                            <ImageIcon size={14} /> Ver comprobante
-                                                        </a>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', minWidth: '600px', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                                <thead>
+                                                    <tr style={{ background: '#F3F4F6', color: '#374151', fontSize: '0.8rem', textTransform: 'uppercase' }}>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB' }}>Fecha</th>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB' }}>Kilometraje</th>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB' }}>Conductor</th>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB', textAlign: 'center' }}>Adjunto</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {fuelData.map(record => (
+                                                        <tr key={record.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                                                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', color: 'var(--text-medium)' }}>
+                                                                {formatDate(record.created_at)}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.9rem', fontWeight: '700', color: 'var(--primary-red)' }}>
+                                                                {record.mileage ? `${record.mileage} KM` : '—'}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem' }}>
+                                                                {record.profiles?.full_name || '—'}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                                                {record.photo_url ? (
+                                                                    <a href={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/trip-photos/${record.photo_url}`}
+                                                                        target="_blank" rel="noopener noreferrer"
+                                                                        style={{
+                                                                            display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                                                                            background: '#EEF2FF', color: '#4F46E5', padding: '0.3rem 0.6rem',
+                                                                            borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', textDecoration: 'none'
+                                                                        }}>
+                                                                        <ImageIcon size={14} /> Ver foto
+                                                                    </a>
+                                                                ) : (
+                                                                    <span style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>Sin foto</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     )}
                                 </div>
                             )}
 
                             {/* TAB: MANTENIMIENTO */}
                             {activeTab === 'maintenance' && (
-                                <div className="space-y-4">
+                                <div>
                                     {maintenanceData.length === 0 ? (
                                         <p style={{ textAlign: 'center', color: 'var(--text-light)', padding: '2rem' }}>No hay reportes de mantenimiento.</p>
                                     ) : (
-                                        maintenanceData.map(record => (
-                                            <div key={record.id} style={{ border: '1px solid #E5E7EB', borderRadius: '12px', padding: '1rem', borderLeft: '4px solid #0EA5E9' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                                    <span style={{ fontSize: '0.85rem', color: '#0369A1', fontWeight: '700', textTransform: 'uppercase' }}>
-                                                        Reporte
-                                                    </span>
-                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-medium)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                                        <Calendar size={14} /> {formatDate(record.start_time)}
-                                                    </span>
-                                                </div>
-                                                <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-                                                    <User size={16} color="var(--text-light)" />
-                                                    <strong>Conductor:</strong> {record.profiles?.full_name || 'Desconocido'}
-                                                </div>
-                                                <div style={{ marginBottom: '0.5rem', display: 'flex', gap: '0.5rem', fontSize: '0.9rem' }}>
-                                                    <FileText size={16} color="var(--text-light)" style={{ flexShrink: 0, marginTop: '2px' }} />
-                                                    <span><strong>Motivo:</strong> {record.reason || 'Sin detalles'}</span>
-                                                </div>
-                                                {record.mileage && (
-                                                    <div style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem' }}>
-                                                        <Gauge size={16} color="var(--text-light)" />
-                                                        <strong>Kilometraje:</strong> {record.mileage} KM
-                                                    </div>
-                                                )}
-
-                                                {record.photo_url && (
-                                                    <div style={{ marginTop: '0.75rem' }}>
-                                                        <a href={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/trip-photos/${record.photo_url}`}
-                                                            target="_blank" rel="noopener noreferrer"
-                                                            style={{
-                                                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                                                                color: '#2563EB', fontSize: '0.8rem', fontWeight: '600', textDecoration: 'none'
-                                                            }}>
-                                                            <ImageIcon size={14} /> Ver foto
-                                                        </a>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', minWidth: '700px', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                                <thead>
+                                                    <tr style={{ background: '#F3F4F6', color: '#374151', fontSize: '0.8rem', textTransform: 'uppercase' }}>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB' }}>Fecha</th>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB' }}>Motivo</th>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB' }}>Kilometraje</th>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB' }}>Conductor</th>
+                                                        <th style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #E5E7EB', textAlign: 'center' }}>Adjunto</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {maintenanceData.map(record => (
+                                                        <tr key={record.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                                                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', color: 'var(--text-medium)' }}>
+                                                                {formatDate(record.start_time)}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', color: 'var(--text-dark)', maxWidth: '200px' }}>
+                                                                {record.reason || '—'}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.9rem', fontWeight: '700', color: '#0EA5E9' }}>
+                                                                {record.mileage ? `${record.mileage} KM` : '—'}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem' }}>
+                                                                {record.profiles?.full_name || '—'}
+                                                            </td>
+                                                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                                                {record.photo_url ? (
+                                                                    <a href={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/trip-photos/${record.photo_url}`}
+                                                                        target="_blank" rel="noopener noreferrer"
+                                                                        style={{
+                                                                            display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                                                                            background: '#EEF2FF', color: '#4F46E5', padding: '0.3rem 0.6rem',
+                                                                            borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', textDecoration: 'none'
+                                                                        }}>
+                                                                        <ImageIcon size={14} /> Ver foto
+                                                                    </a>
+                                                                ) : (
+                                                                    <span style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>Sin foto</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     )}
                                 </div>
                             )}
