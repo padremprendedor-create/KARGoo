@@ -221,6 +221,20 @@ const DriverDashboard = () => {
                 photoUrl = filePath;
             }
 
+            // Resolve vehicle plate from active trip or most recent trip
+            let vehiclePlate = activeTrip?.vehicle_plate || null;
+            if (!vehiclePlate) {
+                const { data: recentTrip } = await supabase
+                    .from('trips')
+                    .select('vehicle_plate')
+                    .eq('driver_id', user.id)
+                    .not('vehicle_plate', 'is', null)
+                    .order('start_time', { ascending: false })
+                    .limit(1)
+                    .single();
+                vehiclePlate = recentTrip?.vehicle_plate || null;
+            }
+
             const { error } = await supabase
                 .from('driver_activities')
                 .insert([{
@@ -229,14 +243,14 @@ const DriverDashboard = () => {
                     reason: maintenanceText.trim(),
                     photo_url: photoUrl,
                     start_time: new Date().toISOString(),
-                    vehicle_plate: activeTrip?.vehicle_plate || null,
+                    vehicle_plate: vehiclePlate,
                     mileage: maintenanceMileage ? parseFloat(maintenanceMileage) : null
                 }]);
             if (error) throw error;
 
-            if (maintenanceMileage && activeTrip?.vehicle_plate) {
+            if (maintenanceMileage && vehiclePlate) {
                 const { error: mileageErr } = await supabase.from('vehicle_mileage_logs').insert({
-                    vehicle_plate: activeTrip.vehicle_plate,
+                    vehicle_plate: vehiclePlate,
                     driver_id: user.id,
                     mileage: parseFloat(maintenanceMileage),
                     event_type: 'maintenance'
@@ -770,7 +784,7 @@ const DriverDashboard = () => {
                                         <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>Sin contenedor</span>
                                     )}
 
-                                    {/* Badges: Service & Cargo */}
+                                    {/* Badges: Service & Cargo & Plate */}
                                     {activeTrip.service_type && (
                                         <span style={{
                                             background: '#F3F4F6', color: '#4B5563', padding: '0.3rem 0.85rem',
@@ -789,6 +803,15 @@ const DriverDashboard = () => {
                                             boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                                         }}>
                                             Carga: {activeTrip.cargo_type}
+                                        </span>
+                                    )}
+                                    {activeTrip.vehicle_plate && (
+                                        <span style={{
+                                            background: '#FEF3C7', color: '#D97706', padding: '0.3rem 0.85rem',
+                                            borderRadius: '8px', fontSize: '0.8rem', fontWeight: '900', textTransform: 'uppercase',
+                                            border: '1px solid #FDE68A', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                        }}>
+                                            Placa: {activeTrip.vehicle_plate}
                                         </span>
                                     )}
                                 </div>

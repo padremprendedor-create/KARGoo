@@ -467,7 +467,7 @@ const ActiveTrip = () => {
                             </h2>
                         </div>
 
-                        {/* Badges: Service Type & Cargo Type */}
+                        {/* Badges: Service Type & Cargo Type & Plate */}
                         <div style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
                             {trip.service_type && (
                                 <span style={{
@@ -487,6 +487,15 @@ const ActiveTrip = () => {
                                     boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                                 }}>
                                     Carga: {trip.cargo_type}
+                                </span>
+                            )}
+                            {trip.vehicle_plate && (
+                                <span style={{
+                                    background: '#FEF3C7', color: '#D97706', padding: '0.4rem 1rem',
+                                    borderRadius: '10px', fontSize: '0.85rem', fontWeight: '900', textTransform: 'uppercase',
+                                    border: '1px solid #FDE68A', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                }}>
+                                    Placa: {trip.vehicle_plate}
                                 </span>
                             )}
                         </div>
