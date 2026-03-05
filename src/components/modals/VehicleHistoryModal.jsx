@@ -25,6 +25,17 @@ const VehicleHistoryModal = ({ isOpen, onClose, vehicle }) => {
         }
     }, [isOpen, vehicle]);
 
+    const openPhoto = async (photoPath) => {
+        const { data, error } = await supabase.storage
+            .from('trip-photos')
+            .createSignedUrl(photoPath, 60 * 60); // 1 hour expiry
+        if (error) {
+            alert('No se pudo abrir la foto: ' + error.message);
+            return;
+        }
+        window.open(data.signedUrl, '_blank');
+    };
+
     const fetchHistoryData = async () => {
         setLoading(true);
         try {
@@ -179,15 +190,16 @@ const VehicleHistoryModal = ({ isOpen, onClose, vehicle }) => {
                                                             </td>
                                                             <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
                                                                 {record.photo_url ? (
-                                                                    <a href={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/trip-photos/${record.photo_url}`}
-                                                                        target="_blank" rel="noopener noreferrer"
+                                                                    <button
+                                                                        onClick={() => openPhoto(record.photo_url)}
                                                                         style={{
                                                                             display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                                                                             background: '#EEF2FF', color: '#4F46E5', padding: '0.3rem 0.6rem',
-                                                                            borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', textDecoration: 'none'
+                                                                            borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700',
+                                                                            border: 'none', cursor: 'pointer'
                                                                         }}>
                                                                         <ImageIcon size={14} /> Ver foto
-                                                                    </a>
+                                                                    </button>
                                                                 ) : (
                                                                     <span style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>Sin foto</span>
                                                                 )}
@@ -235,15 +247,16 @@ const VehicleHistoryModal = ({ isOpen, onClose, vehicle }) => {
                                                             </td>
                                                             <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
                                                                 {record.photo_url ? (
-                                                                    <a href={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/trip-photos/${record.photo_url}`}
-                                                                        target="_blank" rel="noopener noreferrer"
+                                                                    <button
+                                                                        onClick={() => openPhoto(record.photo_url)}
                                                                         style={{
                                                                             display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                                                                             background: '#EEF2FF', color: '#4F46E5', padding: '0.3rem 0.6rem',
-                                                                            borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', textDecoration: 'none'
+                                                                            borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700',
+                                                                            border: 'none', cursor: 'pointer'
                                                                         }}>
                                                                         <ImageIcon size={14} /> Ver foto
-                                                                    </a>
+                                                                    </button>
                                                                 ) : (
                                                                     <span style={{ fontSize: '0.75rem', color: '#9CA3AF' }}>Sin foto</span>
                                                                 )}
