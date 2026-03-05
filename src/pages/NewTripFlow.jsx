@@ -54,6 +54,7 @@ const NewTripFlow = () => {
         const { data } = await supabase
             .from('vehicles')
             .select('plate, brand, model')
+            .eq('status', 'available')
             .order('plate');
         setVehicles(data || []);
     };
@@ -131,6 +132,12 @@ const NewTripFlow = () => {
 
                 if (containerError) throw containerError;
             }
+
+            // Update vehicle status to in_use
+            await supabase
+                .from('vehicles')
+                .update({ status: 'in_use' })
+                .eq('plate', vehiclePlate);
 
             navigate(`/driver/trip/${newTripId}`);
         } catch (error) {

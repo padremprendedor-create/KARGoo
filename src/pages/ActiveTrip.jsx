@@ -318,6 +318,14 @@ const ActiveTrip = () => {
             if (mileageErr) console.warn('Mileage log failed for trip end:', mileageErr.message);
         }
 
+        // Release vehicle back to available
+        if (trip?.vehicle_plate) {
+            await supabase
+                .from('vehicles')
+                .update({ status: 'available' })
+                .eq('plate', trip.vehicle_plate);
+        }
+
         // Log interaction
         if (user) {
             await supabase.from('driver_interactions').insert({

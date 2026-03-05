@@ -22,6 +22,8 @@ const DriverDashboard = () => {
     const [maintenancePhoto, setMaintenancePhoto] = useState(null);
     const [maintenancePhotoPreview, setMaintenancePhotoPreview] = useState(null);
     const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
+    const [maintenanceVehiclePlate, setMaintenanceVehiclePlate] = useState('');
+    const [allVehicles, setAllVehicles] = useState([]);
     const maintenanceFileRef = useRef(null);
 
     // Relay (Tomar Relevo) state
@@ -72,6 +74,13 @@ const DriverDashboard = () => {
                 .eq('id', user.id)
                 .single();
             setProfile(profileData);
+
+            // Fetch all vehicles for maintenance plate picker
+            const { data: vehiclesData } = await supabase
+                .from('vehicles')
+                .select('plate, brand, model, status')
+                .order('plate');
+            setAllVehicles(vehiclesData || []);
 
             const { data: trips } = await supabase
                 .from('trips')
@@ -164,6 +173,14 @@ const DriverDashboard = () => {
 
             if (error) throw error;
 
+            // Release vehicle back to available
+            if (activeMaintenance.vehicle_plate) {
+                await supabase
+                    .from('vehicles')
+                    .update({ status: 'available' })
+                    .eq('plate', activeMaintenance.vehicle_plate);
+            }
+
             if (user) {
                 const { error: intErr } = await supabase.from('driver_interactions').insert({
                     driver_id: user.id,
@@ -192,6 +209,10 @@ const DriverDashboard = () => {
     };
 
     const handleMaintenanceSubmit = async () => {
+        if (!maintenanceVehiclePlate) {
+            alert('Por favor, selecciona la placa del vehículo.');
+            return;
+        }
         if (!maintenanceText.trim()) {
             alert('Por favor, describe el motivo del mantenimiento.');
             return;
@@ -221,19 +242,8 @@ const DriverDashboard = () => {
                 photoUrl = filePath;
             }
 
-            // Resolve vehicle plate from active trip or most recent trip
-            let vehiclePlate = activeTrip?.vehicle_plate || null;
-            if (!vehiclePlate) {
-                const { data: recentTrip } = await supabase
-                    .from('trips')
-                    .select('vehicle_plate')
-                    .eq('driver_id', user.id)
-                    .not('vehicle_plate', 'is', null)
-                    .order('start_time', { ascending: false })
-                    .limit(1)
-                    .single();
-                vehiclePlate = recentTrip?.vehicle_plate || null;
-            }
+            // Resolve vehicle plate from picker
+            const vehiclePlate = maintenanceVehiclePlate;
 
             const { error } = await supabase
                 .from('driver_activities')
@@ -247,6 +257,12 @@ const DriverDashboard = () => {
                     mileage: maintenanceMileage ? parseFloat(maintenanceMileage) : null
                 }]);
             if (error) throw error;
+
+            // Set vehicle status to maintenance
+            await supabase
+                .from('vehicles')
+                .update({ status: 'maintenance' })
+                .eq('plate', vehiclePlate);
 
             if (maintenanceMileage && vehiclePlate) {
                 const { error: mileageErr } = await supabase.from('vehicle_mileage_logs').insert({
@@ -269,6 +285,7 @@ const DriverDashboard = () => {
             setShowMaintenance(false);
             setMaintenanceText('');
             setMaintenanceMileage('');
+            setMaintenanceVehiclePlate('');
             setMaintenancePhoto(null);
             setMaintenancePhotoPreview(null);
             fetchData(); // Refresh to show active maintenance
@@ -1219,6 +1236,7 @@ const DriverDashboard = () => {
                                 onClick={() => {
                                     setShowMaintenance(false);
                                     setMaintenanceText('');
+                                    setMaintenanceVehiclePlate('');
                                     setMaintenancePhoto(null);
                                     setMaintenancePhotoPreview(null);
                                 }}
@@ -1233,10 +1251,40 @@ const DriverDashboard = () => {
 
                         {/* Modal Body */}
                         <div style={{ padding: '1.5rem' }}>
-                            {/* Description */}
+                            {/* Vehicle Plate Picker */}
                             <label style={{
                                 display: 'block', fontSize: '0.8rem', fontWeight: '700',
                                 color: '#374151', marginBottom: '0.5rem',
+                            }}>
+                                Placa del Vehículo
+                            </label>
+                            <select
+                                value={maintenanceVehiclePlate}
+                                onChange={(e) => setMaintenanceVehiclePlate(e.target.value)}
+                                style={{
+                                    width: '100%', padding: '0.875rem',
+                                    borderRadius: '12px', border: '1px solid #E5E7EB',
+                                    fontSize: '0.9rem', color: '#1F2937',
+                                    outline: 'none', boxSizing: 'border-box',
+                                    background: 'white', transition: 'border-color 0.2s',
+                                }}
+                                onFocus={(e) => e.target.style.borderColor = '#F97316'}
+                                onBlur={(e) => e.target.style.borderColor = '#E5E7EB'}
+                            >
+                                <option value="">-- Selecciona una placa --</option>
+                                {allVehicles
+                                    .filter(v => v.status === 'available' || v.status === 'in_use')
+                                    .map(v => (
+                                        <option key={v.plate} value={v.plate}>
+                                            {v.plate} — {v.brand} {v.model}
+                                        </option>
+                                    ))}
+                            </select>
+
+                            {/* Description */}
+                            <label style={{
+                                display: 'block', fontSize: '0.8rem', fontWeight: '700',
+                                color: '#374151', marginBottom: '0.5rem', marginTop: '1rem',
                             }}>
                                 Descripción del mantenimiento
                             </label>
